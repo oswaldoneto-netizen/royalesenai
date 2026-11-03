@@ -661,6 +661,7 @@ ROOMS = []
 
 
 def join(client, skin):
+    start_loop()
     with LOCK:
         leave(client)
         room = None
@@ -730,11 +731,13 @@ def stats():
         return {"rooms": len(ROOMS), "players": sum(len(r.humans()) for r in ROOMS)}
 
 
-_started = False
+_started_pid = None
 
 
 def start_loop():
-    global _started
-    if not _started:
-        _started = True
+    # com "preload" o gunicorn importa o app no processo MASTER e depois faz fork:
+    # threads nao passam pro worker. Por isso o loop e iniciado por processo (pid).
+    global _started_pid
+    if _started_pid != os.getpid():
+        _started_pid = os.getpid()
         threading.Thread(target=loop, daemon=True).start()
