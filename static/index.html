@@ -221,7 +221,7 @@ const PASS=[[50,['$',100]],[60,['w',4]],[70,['c',4]],[80,['$',200]],[90,['w',5]]
 [160,['$',500]],[170,['$',600]],[180,['$',700]],[190,['$',800]],[200,['$',900]],[220,['$',1000]],[240,['$',1200]],[260,['$',1500]],[280,['$',2000]],[300,['c',8]]],PASSP=800;
 const ITN=['Pistola','Rifle','Shotgun','Sniper','Bazuca','Bandagem','Kit médico'],RAR=[['Incomum',0x4cd964],['Raro',0x3aa0ff],['Épico',0xb15cff],['Lendário',0xffa51f]],DM=[1,1.15,1.3,1.5];var pvUpd=null;
 const WN=['Pistola','Rifle','Shotgun','Sniper','Bazuca'],WCD=[350,110,900,1500,2500],WCOL=[0xdddddd,0x6b8e23,0xb5651d,0x5a5ad0,0xffffff];
-let save={xp:0,coins:0,cown:[0],wown:[0],ec:0,ew:0,pass:0,cl:{},nick:'',mute:0,creator:0};
+let save={xp:0,px:0,coins:0,cown:[0],wown:[0],ec:0,ew:0,pass:0,cl:{},nick:'',mute:0,creator:0};
 let tok='',acct=null,saveT=0;try{tok=localStorage.getItem('brt')||''}catch(e){}
 function pushSave(){if(!tok)return Promise.resolve();const s=Object.assign({},save);delete s.nick;delete s.creator;return fetch('/api/save',{method:'POST',headers:{'Content-Type':'application/json','X-Token':tok},body:JSON.stringify({save:s}),keepalive:true}).catch(()=>{})}
 const persist=()=>{clearTimeout(saveT);saveT=setTimeout(pushSave,400)};
@@ -229,6 +229,9 @@ function persistOwn(){clearTimeout(saveT);pushSave().then(refreshWs,refreshWs)}
 function refreshWs(){if(partyState.m.length||phase!=='lobby'||queued)return;const s=ws;ws=null;if(s)try{s.close()}catch(e){}setTimeout(()=>wsOpen().then(()=>tx({t:'pskin',skin:save.ec})).catch(()=>{}),300)}
 addEventListener('pagehide',()=>{if(tok&&acct)pushSave()});
 const lvl=()=>{let l=1,x=save.xp;while(x>=100*l&&l<150){x-=100*l;l++}return l>=150?[150,15000,15000]:[l,x,100*l]};
+const PXN=n=>180+50*n;   // XP do passe para completar o nivel n (1..20): 230, 280 ... 1180
+function passLvl(){let l=0,x=save.px||0;while(l<PASS.length&&x>=PXN(l+1)){x-=PXN(l+1);l++}return l>=PASS.length?[PASS.length,0,0]:[l,x,PXN(l+1)]}
+const pxGain=(k,p)=>15+k*25+(p===1?120:p<=3?50:p<=6?20:0);
 const hex=c=>'#'+c.toString(16).padStart(6,'0');
 let panel='';
 const info=(k,i)=>{const s=(k==='c'?CH:WSK)[i];return{n:s[0],col:s[1],pc:k==='c'?s[2]:s[1],price:k==='c'?s[5]:s[2],src:k==='c'?s[6]:s[3],rar:k==='c'?s[8]:s[4]}};
@@ -261,7 +264,7 @@ function renderShop(B){
     b.onclick=()=>{
       if(o){equip(k,i);persist();renderLobby();return}
       if(!shopItems(slotNow()).some(x=>x[0]===k&&x[1]===i)){renderLobby();return}
-      if(save.coins<f.price)return;save.coins-=f.price;giveItem(k,i);equip(k,i);persistOwn();renderLobby();
+      if(save.coins<f.price){uiSnd('err');return}save.coins-=f.price;giveItem(k,i);equip(k,i);uiSnd('buy');persistOwn();renderLobby();
     };
     g.appendChild(b);
   });
@@ -274,7 +277,7 @@ function giveItem(k,i){const a=k==='c'?save.cown:save.wown;if(!a.includes(i))a.p
 function claim(kind,i){
   const [fc,pr]=PASS[i],key=kind+i;if(save.cl[key])return;
   if(kind==='f')save.coins+=fc;else{if(!save.pass)return;if(pr[0]==='$')save.coins+=pr[1];else giveItem(pr[0],pr[1])}
-  save.cl[key]=1;(kind==='p'&&pr[0]!=='$'?persistOwn:persist)();renderLobby();
+  save.cl[key]=1;uiSnd('claim');(kind==='p'&&pr[0]!=='$'?persistOwn:persist)();renderLobby();
 }
 function renderLobby(){
   const[l,x,n]=lvl();$('lv').textContent='NÍVEL '+l;$('xpb').style.width=(x/n*100)+'%';$('xpt').textContent=x+' / '+n+' XP';$('co').textContent='🪙 '+(save.creator?'∞':save.coins);
@@ -297,10 +300,13 @@ function renderLobby(){
     }
   };
   if(panel==='pass'){
-    if(!save.pass){const b=document.createElement('button');b.className='pbuy';b.textContent='Comprar Passe Premium 🪙'+PASSP;b.onclick=()=>{if(save.coins>=PASSP){save.coins-=PASSP;save.pass=1;persist();renderLobby()}};B.appendChild(b)}
+    const [pl,pxx,pxn]=passLvl(),ph=document.createElement('div');ph.className='stt';ph.style.flexWrap='wrap';
+    ph.innerHTML='<span>⭐ Nível do passe <b>'+pl+'/'+PASS.length+'</b></span><span style="font-size:15px;color:#9fd9ef">'+(pl>=PASS.length?'NÍVEL MÁXIMO':pxx+' / '+pxn+' XP')+'</span><div style="flex-basis:100%;height:10px;background:#08131a;border-radius:6px;overflow:hidden"><div style="height:100%;width:'+(pl>=PASS.length?100:pxx/pxn*100)+'%;background:#ffd34d"></div></div><small style="flex-basis:100%;color:#9fd9ef;font-size:12px">O nível do passe é separado do nível do jogador. Ganhe XP do passe jogando partidas: cada abate, posição final e vitória contam.</small>';
+    B.appendChild(ph);
+    if(!save.pass){const b=document.createElement('button');b.className='pbuy';b.textContent='Comprar Passe Premium 🪙'+PASSP;b.onclick=()=>{if(save.coins>=PASSP){save.coins-=PASSP;save.pass=1;uiSnd('buy');persist();renderLobby()}else uiSnd('err')};B.appendChild(b)}
     const tr=document.createElement('div');tr.className='ptrack';B.appendChild(tr);
     PASS.forEach(([fc,pr],i)=>{
-      const ok=l>=i+1,col=document.createElement('div');col.className='pt'+(ok?' ok':'');
+      const ok=pl>=i+1,col=document.createElement('div');col.className='pt'+(ok?' ok':'');
       const hd=document.createElement('div');hd.className='pth';hd.textContent='NÍVEL '+(i+1);
       const fb=document.createElement('button'),pb=document.createElement('button');
       fb.textContent=save.cl['f'+i]?'✔ Resgatado':ok?'Resgatar 🪙'+fc:'🔒 🪙'+fc;fb.className=save.cl['f'+i]?'ok':'';fb.disabled=!ok||!!save.cl['f'+i];fb.onclick=()=>claim('f',i);
@@ -326,7 +332,7 @@ function renderProfile(B){
 function applyAuth(d){
   tok=d.token||tok;try{localStorage.setItem('brt',tok)}catch(e){}
   acct={nick:d.nick,display:d.display};
-  save=Object.assign({xp:0,coins:0,cown:[0],wown:[0],ec:0,ew:0,pass:0,cl:{},mute:0},d.save,{creator:d.creator?1:0,nick:d.display});save.stats=Object.assign({k:0,ws:0,wd:0,gs:0,gd:0},save.stats);
+  save=Object.assign({xp:0,px:0,coins:0,cown:[0],wown:[0],ec:0,ew:0,pass:0,cl:{},mute:0},d.save,{creator:d.creator?1:0,nick:d.display});save.stats=Object.assign({k:0,ws:0,wd:0,gs:0,gd:0},save.stats);
   $('auth').style.display='none';$('accn').textContent=d.display;$('apass').value='';$('ast').textContent='';
   $('snd').textContent=save.mute?'🔇':'🔊';panel='';renderLobby();tick();wsOpen().then(()=>tx({t:'pskin',skin:save.ec})).catch(()=>{});
 }
@@ -438,11 +444,11 @@ function setWeapon(){
 
 function award(m,win){
   const k=m.k,p=m.place,w1=win&&p===1,xp=20+k*50+Math.max(0,(10-p)*10)+(w1?100:0),co=10+k*15+(w1?100:0);
-  save.xp+=xp;save.coins+=co;
+  const pg=pxGain(k,p);save.xp+=xp;save.px=(save.px||0)+pg;save.coins+=co;
   const st=save.stats=Object.assign({k:0,ws:0,wd:0,gs:0,gd:0},save.stats);
   st.k+=k;if(m.md==='duo')st.gd++;else st.gs++;
   if(w1){if(m.md==='duo')st.wd++;else st.ws++}
-  persist();return[xp,co];
+  persist();return[xp,co,pg];
 }
 function startSpectate(m){
   pendRes=m;phase='spectate';document.exitPointerLock();tcShow(0);scope=false;$('inv').style.display='none';
@@ -451,8 +457,8 @@ function startSpectate(m){
 function finishRes(m){
   pendRes=null;phase='dead';document.body.classList.remove('spec');$('spec').style.display='none';
   document.exitPointerLock();tcShow(0);scope=false;$('inv').style.display='none';sfx({o:300,o2:40,d:.8,v:.6,ty:'sawtooth'});
-  const k=m.k,p=m.place,[xp,co]=award(m,true);
-  $('res').innerHTML='<h1 style="font-size:56px">'+(p===1?'VITÓRIA':'#'+p+' lugar')+'</h1><div>'+k+' abates</div><div>+'+xp+' XP &nbsp; +'+co+' 🪙</div><button id="back">Voltar ao lobby</button>';
+  const k=m.k,p=m.place,[xp,co,pg]=award(m,true);
+  $('res').innerHTML='<h1 style="font-size:56px">'+(p===1?'VITÓRIA':'#'+p+' lugar')+'</h1><div>'+k+' abates</div><div>+'+xp+' XP &nbsp; +'+co+' 🪙</div><div style="color:#ffd34d">+'+pg+' XP do passe ⭐</div><button id="back">Voltar ao lobby</button>';
   $('res').style.display='flex';$('back').onclick=toLobby;
 }
 function on(m){
@@ -640,6 +646,39 @@ function sfx(o){
   if(o.n){const s=AC.createBufferSource();s.buffer=NB;const f=AC.createBiquadFilter();f.type=o.ft||'lowpass';f.frequency.value=o.n;const g=AC.createGain();g.gain.setValueAtTime(o.v,t);g.gain.exponentialRampToValueAtTime(.001,t+o.d);s.connect(f);f.connect(g);g.connect(out);s.start(t,Math.random()*.5,o.d)}
   if(o.o){const s=AC.createOscillator();s.type=o.ty||'sine';s.frequency.setValueAtTime(o.o,t);s.frequency.exponentialRampToValueAtTime(o.o2||o.o/3,t+o.d);const g=AC.createGain();g.gain.setValueAtTime(o.ov||o.v,t);g.gain.exponentialRampToValueAtTime(.001,t+o.d);s.connect(g);g.connect(out);s.start(t);s.stop(t+o.d)}
 }
+// ===== SONS DE INTERFACE =====
+function uiSnd(t){
+  if(!AC||save.mute)return;
+  if(t==='buy')[784,988,1318].forEach((f,i)=>setTimeout(()=>sfx({o:f,o2:f,d:.2,v:.22,ty:'triangle'}),i*70));
+  else if(t==='claim')[523,659,784,1047].forEach((f,i)=>setTimeout(()=>sfx({o:f,o2:f,d:.22,v:.2,ty:'sine'}),i*60));
+  else if(t==='err')sfx({o:220,o2:110,d:.18,v:.22,ty:'square'});
+  else sfx({o:880,o2:600,d:.05,v:.16,ty:'square'});
+}
+addEventListener('click',e=>{const b=e.target.closest&&e.target.closest('button');if(!b||phase!=='lobby')return;if(b.closest('#lobby,#pnl,#mdl,#auth'))uiSnd('click')},true);
+// ===== MÚSICA DO LOBBY (sintetizada, em loop) =====
+let musG=null,musT=0,musStep=0,musRun=false;
+const MSTEP=60/96/2,MCH=[[57,60,64],[53,57,60],[48,52,55],[55,59,62]],mhz=n=>440*Math.pow(2,(n-69)/12);
+function mnote(f,t,d,ty,v){const o=AC.createOscillator();o.type=ty;o.frequency.value=f;const g=AC.createGain();g.gain.setValueAtTime(.0001,t);g.gain.linearRampToValueAtTime(v,t+Math.min(.03,d/3));g.gain.exponentialRampToValueAtTime(.0001,t+d);o.connect(g);g.connect(musG);o.start(t);o.stop(t+d+.05)}
+function mhat(t){const s=AC.createBufferSource();s.buffer=NB;const f=AC.createBiquadFilter();f.type='highpass';f.frequency.value=7000;const g=AC.createGain();g.gain.setValueAtTime(.07,t);g.gain.exponentialRampToValueAtTime(.0001,t+.04);s.connect(f);f.connect(g);g.connect(musG);s.start(t,Math.random()*.5,.05)}
+function mkick(t){const o=AC.createOscillator();o.frequency.setValueAtTime(130,t);o.frequency.exponentialRampToValueAtTime(45,t+.12);const g=AC.createGain();g.gain.setValueAtTime(.35,t);g.gain.exponentialRampToValueAtTime(.0001,t+.18);o.connect(g);g.connect(musG);o.start(t);o.stop(t+.2)}
+function mstep(t,s){
+  const ch=MCH[Math.floor(s/8)%4],i=s%8;
+  if(i===0)ch.forEach(n=>mnote(mhz(n),t,MSTEP*8,'sine',.045));
+  if(i===0||i===3||i===4||i===6)mnote(mhz(ch[0]-24+(i===6?12:0)),t,MSTEP*1.7,'triangle',.2);
+  if(i===0||i===4)mkick(t);
+  if(i%2===1)mhat(t);
+  mnote(mhz(ch[[0,1,2,1,0,2,1,2][i]]+12+(Math.floor(s/16)%2?12:0)),t,MSTEP*1.5,'triangle',.07);
+}
+function musicTick(){
+  const want=!!(AC&&NB&&acct&&phase==='lobby'&&!save.mute&&$('lobby').style.display!=='none'&&$('auth').style.display==='none');
+  if(want&&!musRun){
+    if(!musG){musG=AC.createGain();musG.connect(master)}
+    musG.gain.cancelScheduledValues(0);musG.gain.setValueAtTime(.0001,AC.currentTime);musG.gain.linearRampToValueAtTime(.5,AC.currentTime+1.5);
+    musRun=true;musT=AC.currentTime+.1}
+  if(!want&&musRun){musRun=false;if(musG){musG.gain.cancelScheduledValues(0);musG.gain.setTargetAtTime(.0001,AC.currentTime,.12)}}
+  if(musRun){if(musT<AC.currentTime-.2)musT=AC.currentTime+.05;while(musT<AC.currentTime+.5){mstep(musT,musStep++);musT+=MSTEP}}
+}
+setInterval(musicTick,200);
 function shot(w,vol,pan){
   if(vol<=0)return;const v=vol;
   if(SND==='B'){
@@ -662,7 +701,7 @@ function onShot(m){
   const ln=new THREE.Line(gm,new THREE.LineBasicMaterial({color:0xffcc66}));scene.add(ln);setTimeout(()=>{scene.remove(ln);gm.dispose()},60);
 }
 $('snd').textContent=save.mute?'🔇':'🔊';
-$('snd').onclick=()=>{save.mute=!save.mute;persist();$('snd').textContent=save.mute?'🔇':'🔊';if(master)master.gain.value=save.mute?0:.6};
+$('snd').title='Som e música';$('snd').onclick=()=>{save.mute=!save.mute;persist();$('snd').textContent=save.mute?'🔇':'🔊';if(master)master.gain.value=save.mute?0:.6};
 const ground=new THREE.Mesh(new THREE.PlaneGeometry(1000,1000),new THREE.MeshLambertMaterial({map:grassT}));ground.rotation.x=-Math.PI/2;scene.add(ground);road(9,1000,0);road(9,1000,Math.PI/2);
 const zone=new THREE.Mesh(new THREE.CylinderGeometry(1,1,220,64,1,true),new THREE.MeshBasicMaterial({color:0xff2a2a,transparent:true,opacity:.16,side:THREE.DoubleSide,depthWrite:false}));zone.position.y=110;zone.scale.set(230,1,230);scene.add(zone);
 const planeM=makePlane();scene.add(planeM);
