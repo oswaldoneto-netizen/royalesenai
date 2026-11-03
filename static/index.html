@@ -152,7 +152,7 @@ body.touch #stw{bottom:auto;top:34px;left:14px;width:170px}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
 const $=i=>document.getElementById(i);
-addEventListener('error',e=>{const a=document.getElementById('ast');if(a&&!a.textContent)a.textContent='Erro: '+e.message});
+addEventListener('error',e=>{const a=document.getElementById('ast');if(a&&!a.textContent)a.textContent='Erro: '+e.message;const z=document.getElementById('st');if(z)z.textContent='Erro: '+e.message+' (linha '+e.lineno+')'});
 const isTouch=('ontouchstart' in window)||navigator.maxTouchPoints>0;
 if(isTouch)document.body.classList.add('touch');
 let jx=0,jy=0,tFire=false,tSprint=false,joyId=null,lookId=null,fireId=null,jc=[0,0],lk=[0,0],fk=[0,0];
@@ -265,7 +265,7 @@ function wsOpen(){
     const s=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws?token='+encodeURIComponent(tok));ws=s;
     s.onopen=()=>res();
     s.onerror=()=>rej(new Error('ws'));
-    s.onmessage=e=>{let m;try{m=JSON.parse(e.data)}catch(x){return}on(m)};
+    s.onmessage=e=>{let m;try{m=JSON.parse(e.data)}catch(x){return}try{on(m)}catch(x){$('st').textContent='Erro no jogo ('+m.t+'): '+x.message;$('play').disabled=false;console.error(x)}};
     s.onclose=()=>{if(ws!==s)return;ws=null;if(phase!=='lobby')toLobby();$('play').disabled=false;$('st').textContent='Conexão com o servidor perdida. Aperte JOGAR de novo.'};
   });
 }
