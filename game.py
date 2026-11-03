@@ -23,7 +23,7 @@ MAX_PLAYERS = 12                                   # humanos + bots por sala
 WAIT_SECS = int(os.environ.get("WAIT_SECS", "12"))  # espera por mais jogadores antes de comecar
 TICK = 0.05                                        # 20 atualizacoes por segundo
 PLANE_MS = 20000
-GRACE = 15000
+GRACE = 40000
 LAKE_R, ISL_R = 50, 25
 POIS = [(250, 250, 90, 30, 5), (-250, -250, 55, 22, 4), (150, 24, 12, 8, 1), (24, -170, 12, 8, 1)]  # x,z,s,loot,chests
 ISLC = [(8, 8), (-8, 8), (8, -8), (-8, -8)]
@@ -248,7 +248,7 @@ class Room:
             b.jt = rn(2000, 17000)
             b.tg = [rn(-380, 380), rn(-380, 380)]
             self.players[pid] = b
-        self.plane = dict(ax=-440, az=rn(-200, 200), bx=440, bz=rn(-200, 200))
+        self.plane = dict(ax=-320, az=rn(-150, 150), bx=320, bz=rn(-150, 150))
         self.t0 = now_ms()
         self.last_tick = time.time()
         self.gen_loot()
@@ -620,7 +620,7 @@ class Room:
         self.last_tick = n
         el = now_ms() - self.t0
         zt = el - GRACE
-        r = 440 if zt < 0 else max(8, 440 - zt / 1000 * 3.2)
+        r = 440 if zt < 0 else max(8, 440 - zt / 1000 * 2.2)
         f = min(1, el / PLANE_MS)
         pl = self.plane
         px, pz = pl["ax"] + (pl["bx"] - pl["ax"]) * f, pl["az"] + (pl["bz"] - pl["az"]) * f
