@@ -1,14 +1,14 @@
 import os
 import time
-import eventlet
-eventlet.monkey_patch()
+from gevent import monkey
+monkey.patch_all()
 
 from flask import Flask, send_from_directory, jsonify, request
 from flask_socketio import SocketIO, emit, join_room, leave_room
 
 app = Flask(__name__, static_folder='static')
 app.config['SECRET_KEY'] = 'royale-senai-secret'
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='gevent')
 
 queue = []
 rooms = {}
