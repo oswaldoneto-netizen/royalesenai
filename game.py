@@ -19,6 +19,7 @@ from collections import deque
 BASE = os.path.dirname(os.path.abspath(__file__))
 
 # ---------------- configuracao ----------------
+N_SKINS = 13                                       # personagens (0..12; 7 = criador)
 MAX_PLAYERS = 12                                   # humanos + bots por sala
 WAIT_SECS = int(os.environ.get("WAIT_SECS", "12"))  # espera por mais jogadores antes de comecar
 TICK = 0.05                                        # 20 atualizacoes por segundo
@@ -947,7 +948,7 @@ _last_pp = 0.0
 def valid_skin(client, skin):
     if not isinstance(skin, int) or isinstance(skin, bool):
         return 0
-    top = 7 if client.creator else 6
+    top = N_SKINS - 1
     if not (0 <= skin <= top) or (skin not in client.cown and not client.creator):
         return 0
     return skin

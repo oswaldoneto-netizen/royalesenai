@@ -26,7 +26,8 @@ CREATOR_DISPLAY = "Criador Oswaldo"
 MAX_LEVEL = 150
 MAX_XP = 100 * (MAX_LEVEL - 1) * MAX_LEVEL // 2   # xp acumulado para chegar no nivel 150
 CREATOR_IDX = 7            # skin exclusiva do criador (personagem e arma)
-N_ALL = 8                  # indices 0..7
+N_CH = game.N_SKINS        # personagens: indices 0..N_CH-1 (7 = so do criador)
+N_WP = 12                  # skins de arma
 ONLINE_WINDOW = 45         # segundos sem ping = offline
 RESERVED = {"oswaldo", "criador", "criadoroswaldo", "admin", "adm", "moderador", "oswaldindev"}
 NICK_RE = re.compile(r"^[A-Za-z0-9_.-]{3,14}$")
@@ -108,7 +109,7 @@ def own_list(v, n):
     out = {0}
     if isinstance(v, list):
         for i in v:
-            if isinstance(i, int) and not isinstance(i, bool) and 0 <= i < n:
+            if isinstance(i, int) and not isinstance(i, bool) and 0 <= i < n and i != CREATOR_IDX:
                 out.add(i)
     return sorted(out)
 
@@ -129,13 +130,13 @@ def clean_stats(v):
 
 
 def creator_save(s):
-    ec = clamp_int(s.get("ec"), 0, N_ALL - 1, CREATOR_IDX)
-    ew = clamp_int(s.get("ew"), 0, N_ALL - 1, CREATOR_IDX)
+    ec = clamp_int(s.get("ec"), 0, N_CH - 1, CREATOR_IDX)
+    ew = clamp_int(s.get("ew"), 0, N_WP - 1, CREATOR_IDX)
     return {
         "xp": MAX_XP,
         "coins": 999999999,
-        "cown": list(range(N_ALL)),
-        "wown": list(range(N_ALL)),
+        "cown": list(range(N_CH)),
+        "wown": list(range(N_WP)),
         "ec": ec,
         "ew": ew,
         "pass": 1,
@@ -150,10 +151,10 @@ def clean_save(s, is_creator):
         s = {}
     if is_creator:
         return creator_save(s)
-    cown = own_list(s.get("cown"), CREATOR_IDX)   # 0..6 (7 e so do criador)
-    wown = own_list(s.get("wown"), CREATOR_IDX)
-    ec = clamp_int(s.get("ec"), 0, CREATOR_IDX - 1)
-    ew = clamp_int(s.get("ew"), 0, CREATOR_IDX - 1)
+    cown = own_list(s.get("cown"), N_CH)   # o indice 7 (criador) nunca entra
+    wown = own_list(s.get("wown"), N_WP)
+    ec = clamp_int(s.get("ec"), 0, N_CH - 1)
+    ew = clamp_int(s.get("ew"), 0, N_WP - 1)
     return {
         "xp": clamp_int(s.get("xp"), 0, MAX_XP),
         "coins": clamp_int(s.get("coins"), 0, 10 ** 9),
@@ -422,7 +423,7 @@ def ping():
             return err("Sessão expirada.", 401)
         con.execute("UPDATE users SET last_seen=? WHERE id=?", (int(time.time()), row["id"]))
         con.commit()
-        return jsonify({"online": online_count(con)})
+        return jsonify({"online": online_count(con), "now": int(time.time() * 1000)})
     finally:
         con.close()
 
@@ -431,7 +432,7 @@ def ping():
 def online():
     con = db()
     try:
-        return jsonify({"online": online_count(con)})
+        return jsonify({"online": online_count(con), "now": int(time.time() * 1000)})
     finally:
         con.close()
 
