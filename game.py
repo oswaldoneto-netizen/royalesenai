@@ -159,6 +159,13 @@ class Player:
         self.jt = 0
         self.inv = []          # itens que o servidor sabe que o humano tem: [w, r]
         self.last_heal = 0
+        self.team = 0
+        self.down = False       # caido (modo dupla)
+        self.dhp = 0.0          # vida enquanto caido
+        self.dby = None
+        self.revp = 0.0         # progresso da cura (segundos)
+        self.rv_by = None
+        self.rv_t = 0.0
 
 
 def now_ms():
@@ -167,7 +174,10 @@ def now_ms():
 
 # ---------------- sala ----------------
 class Room:
-    def __init__(self):
+    def __init__(self, mode="solo", code=""):
+        self.mode, self.code = mode, code
+        self.maxp = MAX_PLAYERS if mode == "solo" else 16
+        self.hmax = 2 if code else self.maxp
         self.state = "waiting"       # waiting -> playing -> over
         self.players = {}
         self.next_id = 1
@@ -204,7 +214,9 @@ class Room:
         client.room, client.player = self, p
         client.send({"t": "init", "id": pid})
         self.send_lobby(True)
-        if len(self.humans()) >= MAX_PLAYERS:
+        if self.code and len(self.humans()) >= 2:
+            self.wait_until = min(self.wait_until, time.time() + 3)
+        if len(self.humans()) >= self.hmax and not self.code:
             self.start()
 
     def remove(self, client):
@@ -240,7 +252,7 @@ class Room:
         names = [b for b in BOT_NAMES if b.lower() not in hn]
         random.shuffle(names)
         i = 0
-        while len(self.players) < MAX_PLAYERS:
+        while len(self.players) < self.maxp:
             pid = self.next_id
             self.next_id += 1
             b = Player(pid, names[i % len(names)] + ("" if i < len(names) else str(i)), i % 7, bot=True)
@@ -248,6 +260,7 @@ class Room:
             b.jt = rn(2000, 17000)
             b.tg = [rn(-380, 380), rn(-380, 380)]
             self.players[pid] = b
+        self.make_teams()
         self.plane = dict(ax=-320, az=rn(-150, 150), bx=320, bz=rn(-150, 150))
         self.t0 = now_ms()
         self.last_tick = time.time()
@@ -416,8 +429,69 @@ class Room:
         self.drop_loot(heal(), 0, c["x"], c["z"] + 1.8)
 
     # ---- combate ----
+    # ---- duplas ----
+    def make_teams(self):
+        ps = list(self.players.values())
+        if self.mode == "solo":
+            for p in ps:
+                p.team = p.id
+            return
+        hs = [p for p in ps if not p.bot]
+        bs = [p for p in ps if p.bot]
+        tid = 1
+        if self.mode == "duo":
+            i = 0
+            while i < len(hs):
+                hs[i].team = tid
+                if i + 1 < len(hs):
+                    hs[i + 1].team = tid
+                    i += 2
+                else:
+                    if bs:
+                        bs.pop().team = tid
+                    i += 1
+                tid += 1
+        else:
+            for h in hs:
+                h.team = tid
+                tid += 1
+        while bs:
+            bs.pop().team = tid
+            if bs:
+                bs.pop().team = tid
+            tid += 1
+
+    def can_down(self, q):
+        return self.mode != "solo" and not q.down and any(
+            t.alive and not t.down and t.team == q.team and t is not q for t in self.players.values())
+
+    def knock(self, q, killer):
+        q.down, q.dhp, q.hp, q.revp, q.dby = True, 100.0, 0.0, 0.0, killer
+        if killer and killer is not q:
+            self.emit({"t": "feed", "x": killer.nick + " deixou " + q.nick + " atordoado", "dn": 1})
+        else:
+            self.emit({"t": "feed", "x": q.nick + " caiu", "dn": 1})
+
+    def teams_alive(self):
+        return len({p.team for p in self.players.values() if p.alive})
+
+    def revive_msg(self, p, m):
+        i = m.get("id")
+        t = self.players.get(i) if isinstance(i, int) else None
+        if p.down or t is None or t is p or not t.down or not t.alive or t.team != p.team:
+            return
+        if math.hypot(t.x - p.x, t.z - p.z) > 4:
+            return
+        n = time.time()
+        if t.rv_by == p.id and n - t.rv_t < .7:
+            t.revp += n - t.rv_t
+        else:
+            t.revp, t.rv_by = 0.0, p.id
+        t.rv_t = n
+
     def die(self, v, k):
         v.alive = False
+        v.down = False
         if k and k is not v:
             k.k += 1
         if v.bot and v.w >= 0:
@@ -427,13 +501,18 @@ class Room:
                 x, z = self.resolve(v.x + rn(-2, 2), v.z + rn(-2, 2), 1.2, 0)
                 self.drop_loot(w, r, x, z)
             v.inv = []
-            v.client.send({"t": "dead", "place": len(self.alive()) + 1, "k": v.k})
-        self.emit({"t": "feed", "a": k.nick if k and k is not v else "Zona", "v": v.nick})
+            ta = self.teams_alive()
+            v.client.send({"t": "dead", "place": ta if any(q.team == v.team for q in self.alive()) else ta + 1, "k": v.k})
+        if self.mode != "solo" and k and k is not v:
+            self.emit({"t": "feed", "x": k.nick + " abateu " + v.nick, "a": k.nick, "v": v.nick})
+        else:
+            self.emit({"t": "feed", "a": k.nick if k and k is not v else "Zona", "v": v.nick})
 
     def hit_ray(self, o, d, r, skip):
         best, bt = None, r
+        sp = self.players.get(skip)
         for q in self.players.values():
-            if not q.alive or q.id == skip or q.ph == "plane":
+            if not q.alive or q.id == skip or q.ph == "plane" or (sp is not None and q.team == sp.team):
                 continue
             cx, cy, cz = q.x - o[0], q.y + .9 - o[1], q.z - o[2]
             t = cx * d[0] + cy * d[1] + cz * d[2]
@@ -445,7 +524,7 @@ class Room:
         return best, (bt if best else 1e9)
 
     def fire(self, p, d):
-        if not (0 <= p.w < 4) or p.ph == "plane":
+        if not (0 <= p.w < 4) or p.ph == "plane" or p.down:
             return
         w = WS[p.w]
         n = now_ms()
@@ -466,10 +545,18 @@ class Room:
                 self.hit_ob(ro[0], dm, o, v, ro[1])
                 q = None
             if q:
-                q.hp -= dm
                 acc[q] = acc.get(q, 0) + dm
-                if q.hp <= 0 and q.alive:
-                    self.die(q, p)
+                if q.down:
+                    q.dhp -= dm
+                    if q.dhp <= 0 and q.alive:
+                        self.die(q, p)
+                else:
+                    q.hp -= dm
+                    if q.hp <= 0 and q.alive:
+                        if self.can_down(q):
+                            self.knock(q, p)
+                        else:
+                            self.die(q, p)
         if not p.bot and p.client:
             for q, dmg in acc.items():
                 p.client.send({"t": "hit", "d": dmg, "x": q.x, "y": q.y + 2.1, "z": q.z, "k": 0 if q.alive else 1})
@@ -479,7 +566,11 @@ class Room:
         if self.state != "playing" or not p.alive or p.bot:
             return
         t = m.get("t")
-        if t == "jump":
+        if p.down and t in ("shoot", "heal", "pick", "open", "drop", "eq"):
+            return
+        if t == "rv":
+            self.revive_msg(p, m)
+        elif t == "jump":
             if p.ph == "plane":
                 f = min(1, (now_ms() - self.t0) / PLANE_MS)
                 pl = self.plane
@@ -541,8 +632,20 @@ class Room:
 
     # ---- bots ----
     def bot_ai(self, p, dt, r):
-        if p.ph == "plane":
+        if p.ph == "plane" or p.down:
             return
+        if p.ph == "ground":
+            for q in self.players.values():
+                if q.down and q.alive and q.team == p.team and q is not p:
+                    d = math.hypot(q.x - p.x, q.z - p.z)
+                    if d > 2.2:
+                        nx, nz = p.x + (q.x - p.x) / d * 7 * dt, p.z + (q.z - p.z) / d * 7 * dt
+                        p.ry = math.atan2(-(q.x - p.x), -(q.z - p.z))
+                        p.x, p.z = self.resolve(nx, nz, .5, p.y)
+                    else:
+                        q.revp += dt
+                        q.rv_t, q.rv_by = time.time(), p.id
+                    return
         gx = gz = 0.0
         sp = 6
         tgt = None
@@ -560,7 +663,7 @@ class Room:
             bd = 70
             if p.w >= 0:
                 for q in self.players.values():
-                    if q is not p and q.alive and q.ph != "plane":
+                    if q is not p and q.alive and q.ph != "plane" and q.team != p.team:
                         d = math.hypot(q.x - p.x, q.z - p.z)
                         if d < bd:
                             bd, tgt = d, q
@@ -632,19 +735,38 @@ class Room:
                 p.x, p.z, p.y, p.vy = px, pz, 130.0, 0.0
             if p.bot:
                 self.bot_ai(p, dt, r)
+            if p.alive and p.down:
+                p.dhp -= dt                      # cai 1 de vida por segundo
+                if n - p.rv_t > .7:
+                    p.revp = 0.0
+                if p.revp >= 7:
+                    p.down, p.hp, p.revp = False, 30.0, 0.0
+                    self.emit({"t": "feed", "x": p.nick + " foi reanimado", "dn": 1})
+                elif p.dhp <= 0 or not any(t.alive and not t.down and t.team == p.team and t is not p
+                                           for t in self.players.values()):
+                    self.die(p, p.dby)
             if p.alive and p.ph != "plane" and math.hypot(p.x, p.z) > r:
-                p.hp -= (2 + max(0, zt) / 30000) * dt
-                if p.hp <= 0:
-                    self.die(p, None)
+                dmg = (2 + max(0, zt) / 30000) * dt
+                if p.down:
+                    p.dhp -= dmg
+                else:
+                    p.hp -= dmg
+                    if p.hp <= 0:
+                        if self.can_down(p):
+                            self.knock(p, None)
+                        else:
+                            self.die(p, None)
         a = self.alive()
         self.emit({"t": "s", "r": r, "a": len(a), "p": [
-            [p.id, p.nick, round(p.x, 2), round(p.y, 2), round(p.z, 2), round(p.ry, 3), max(0, jround(p.hp)),
-             1 if p.alive else 0, p.skin, p.w, 1 if p.ph == "plane" else 0] for p in self.players.values()]})
+            [p.id, p.nick, round(p.x, 2), round(p.y, 2), round(p.z, 2), round(p.ry, 3),
+             max(0, jround(p.dhp if p.down else p.hp)), 1 if p.alive else 0, p.skin, p.w,
+             1 if p.ph == "plane" else 0, p.team, 1 if p.down else 0, round(p.revp, 1)] for p in self.players.values()]})
         humans_alive = [p for p in a if not p.bot]
-        if len(a) <= 1:
-            if a and not a[0].bot:
-                a[0].client.send({"t": "dead", "place": 1, "k": a[0].k})
-            self.emit({"t": "end", "w": a[0].nick if a else ""})
+        if len({p.team for p in a}) <= 1:
+            for p in a:
+                if not p.bot and p.client:
+                    p.client.send({"t": "dead", "place": 1, "k": p.k})
+            self.emit({"t": "end", "w": " + ".join(p.nick for p in a)})
             self.state = "over"
         elif not humans_alive:
             self.state = "over"      # so sobraram bots: nao ha mais ninguem para ver
@@ -660,17 +782,17 @@ LOCK = threading.RLock()
 ROOMS = []
 
 
-def join(client, skin):
+def join(client, skin, mode="solo", code=""):
     start_loop()
     with LOCK:
         leave(client)
         room = None
         for r in ROOMS:
-            if r.state == "waiting" and len(r.humans()) < MAX_PLAYERS:
+            if r.state == "waiting" and r.mode == mode and r.code == code and len(r.humans()) < r.hmax:
                 room = r
                 break
         if room is None:
-            room = Room()
+            room = Room(mode, code)
             ROOMS.append(room)
         room.add(client, skin)
 
@@ -699,7 +821,9 @@ def handle(client, raw):
             top = 7 if client.creator else 6
             if not (0 <= skin <= top) or (skin not in client.cown and not client.creator):
                 skin = 0
-            join(client, skin)
+            mode = m.get("mode") if m.get("mode") in ("solo", "duo", "svd") else "solo"
+            code = "".join(c for c in str(m.get("code", "")).upper() if c.isalnum())[:6] if mode == "duo" else ""
+            join(client, skin, mode, code)
         elif t == "leave":
             leave(client)
         elif client.room is not None and client.player is not None:
