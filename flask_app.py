@@ -119,6 +119,15 @@ def clean_cl(v):
     return {k: 1 for k in v if isinstance(k, str) and CL_RE.match(k)}
 
 
+STAT_KEYS = ("k", "ws", "wd", "gs", "gd")   # abates, vitorias solo/dupla, partidas solo/dupla
+
+
+def clean_stats(v):
+    if not isinstance(v, dict):
+        v = {}
+    return {k: clamp_int(v.get(k), 0, 10 ** 9) for k in STAT_KEYS}
+
+
 def creator_save(s):
     ec = clamp_int(s.get("ec"), 0, N_ALL - 1, CREATOR_IDX)
     ew = clamp_int(s.get("ew"), 0, N_ALL - 1, CREATOR_IDX)
@@ -132,6 +141,7 @@ def creator_save(s):
         "pass": 1,
         "cl": clean_cl(s.get("cl")),
         "mute": 1 if s.get("mute") else 0,
+        "stats": clean_stats(s.get("stats")),
     }
 
 
@@ -154,6 +164,7 @@ def clean_save(s, is_creator):
         "pass": 1 if s.get("pass") else 0,
         "cl": clean_cl(s.get("cl")),
         "mute": 1 if s.get("mute") else 0,
+        "stats": clean_stats(s.get("stats")),
     }
 
 
