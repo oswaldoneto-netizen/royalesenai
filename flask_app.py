@@ -134,6 +134,7 @@ def creator_save(s):
     ew = clamp_int(s.get("ew"), 0, N_WP - 1, CREATOR_IDX)
     return {
         "xp": MAX_XP,
+        "px": 10 ** 6,
         "coins": 999999999,
         "cown": list(range(N_CH)),
         "wown": list(range(N_WP)),
@@ -157,6 +158,7 @@ def clean_save(s, is_creator):
     ew = clamp_int(s.get("ew"), 0, N_WP - 1)
     return {
         "xp": clamp_int(s.get("xp"), 0, MAX_XP),
+        "px": clamp_int(s.get("px"), 0, 10 ** 7),
         "coins": clamp_int(s.get("coins"), 0, 10 ** 9),
         "cown": cown,
         "wown": wown,
