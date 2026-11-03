@@ -32,6 +32,7 @@ WS = [
     dict(d=12, cd=110, sp=.03, pe=1, r=140),
     dict(d=11, cd=900, sp=.09, pe=6, r=50),
     dict(d=80, cd=1500, sp=0, pe=1, r=300),
+    dict(d=75, cd=2500, sp=0, pe=1, r=300),      # bazuca (projetil + explosao)
 ]
 DM = [1, 1.15, 1.3, 1.5]
 BOT_NAMES = ["Raio", "Tigre", "Lobo", "Nina", "Zeca", "Bia", "Dudu", "Kira", "Maverick", "Luna", "Fênix",
@@ -81,7 +82,7 @@ def roll_r(b=0):
 
 
 def roll_w():
-    return random.choice([0, 0, 0, 1, 1, 1, 2, 2, 3])
+    return random.choice([0, 0, 0, 1, 1, 1, 2, 2, 3, 4])
 
 
 def num(v):
@@ -169,6 +170,7 @@ class Player:
         self.rv_by = None
         self.rv_t = 0.0
         self.pg = None          # codigo da party (pra manter a dupla junta)
+        self.spec = False       # morto, assistindo o parceiro
 
 
 def now_ms():
@@ -189,6 +191,8 @@ class Room:
         self.nid = 1000
         self.dead = set()
         self.hp = {}
+        self.proj = []
+        self.pid = 0
         self.plane = None
         self.t0 = 0
         self.wait_until = time.time() + WAIT_SECS
@@ -236,6 +240,7 @@ class Room:
                 p.alive = False
                 self.emit({"t": "feed", "a": p.nick + " saiu"})
             p.client = None
+            p.spec = False
             p.bot = True          # vira "fantasma" sem cliente (morto, so ocupa lugar)
             p.dead_human = True
 
@@ -274,8 +279,8 @@ class Room:
 
     def add_loot(self, li, x, z):
         k = random.random()
-        w = roll_w() if k < .6 else 4 if k < .86 else 5
-        self.loot[li] = {"id": li, "x": x, "z": z, "w": w, "r": roll_r(0) if w < 4 else 0}
+        w = roll_w() if k < .6 else 5 if k < .86 else 6
+        self.loot[li] = {"id": li, "x": x, "z": z, "w": w, "r": roll_r(0) if w < 5 else 0}
 
     def gen_loot(self):
         self.loot, self.chests, self.nid = {}, {}, 1000
@@ -409,8 +414,8 @@ class Room:
             self.emit({"t": "pick", "id": lid})
             p.client.send({"t": "got", "w": l["w"], "r": l["r"] or 0})
             return
-        if l["w"] >= 4:
-            p.hp = min(100, p.hp + (15 if l["w"] == 4 else 50))
+        if l["w"] >= 5:
+            p.hp = min(100, p.hp + (15 if l["w"] == 5 else 50))
         else:
             p.w, p.r = l["w"], l["r"] or 0
         self.emit({"t": "pick", "id": lid})
@@ -421,9 +426,9 @@ class Room:
             return
         c["open"] = 1
         self.emit({"t": "chest", "id": cid})
-        heal = lambda: 4 if random.random() < .5 else 5
+        heal = lambda: 5 if random.random() < .5 else 6
         if c.get("leg"):
-            lw = lambda: random.choice([0, 1, 1, 2, 2, 3, 3])
+            lw = lambda: random.choice([0, 1, 1, 2, 2, 3, 3, 4])
             self.drop_loot(lw(), 3, c["x"] - 1.3, c["z"] + .9)
             self.drop_loot(lw(), 3, c["x"] + 1.3, c["z"] + .9)
             self.drop_loot(heal(), 0, c["x"], c["z"] + 1.8)
@@ -517,7 +522,15 @@ class Room:
                 self.drop_loot(w, r, x, z)
             v.inv = []
             ta = self.teams_alive()
-            v.client.send({"t": "dead", "place": ta if any(q.team == v.team for q in self.alive()) else ta + 1, "k": v.k})
+            sp = any(q.team == v.team for q in self.alive())
+            v.spec = sp
+            v.client.send({"t": "dead", "place": ta if sp else ta + 1, "k": v.k, "sp": 1 if sp else 0, "md": self.md()})
+        if not any(q.alive and q.team == v.team for q in self.players.values()):
+            ta2 = self.teams_alive()
+            for t in self.players.values():      # parceiro assistindo: time eliminado, resultado final
+                if t is not v and t.spec and t.client and t.team == v.team:
+                    t.spec = False
+                    t.client.send({"t": "dead", "place": ta2 + 1, "k": t.k, "sp": 0, "md": self.md()})
         if self.mode != "solo" and k and k is not v:
             self.emit({"t": "feed", "x": k.nick + " abateu " + v.nick, "a": k.nick, "v": v.nick})
         else:
@@ -529,18 +542,106 @@ class Room:
         for q in self.players.values():
             if not q.alive or q.id == skip or q.ph == "plane" or (sp is not None and q.team == sp.team):
                 continue
-            cx, cy, cz = q.x - o[0], q.y + .9 - o[1], q.z - o[2]
+            if q.down:
+                cx, cy, cz = q.x - math.sin(q.ry) * .9 - o[0], q.y + .35 - o[1], q.z - math.cos(q.ry) * .9 - o[2]
+                lim = 1.5
+            else:
+                cx, cy, cz = q.x - o[0], q.y + .9 - o[1], q.z - o[2]
+                lim = .64
             t = cx * d[0] + cy * d[1] + cz * d[2]
             if t < 0 or t > bt:
                 continue
             px, py, pz = cx - d[0] * t, cy - d[1] * t, cz - d[2] * t
-            if px * px + py * py + pz * pz < .64:
+            if px * px + py * py + pz * pz < lim:
                 best, bt = q, t
         return best, (bt if best else 1e9)
 
+    def md(self):
+        return "duo" if self.mode == "duo" else "solo"
+
+    def deal(self, q, dmg, killer):
+        if q.down:
+            q.dhp -= dmg
+            if q.dhp <= 0 and q.alive:
+                self.die(q, killer)
+        else:
+            q.hp -= dmg
+            if q.hp <= 0 and q.alive:
+                if self.can_down(q):
+                    self.knock(q, killer)
+                else:
+                    self.die(q, killer)
+
+    def launch(self, p, d, dm):
+        l = math.sqrt(d[0] ** 2 + d[1] ** 2 + d[2] ** 2) or 1
+        v = [c / l for c in d]
+        self.proj.append({"id": self.pid, "x": p.x + v[0] * 1.2, "y": p.y + 1.6 + v[1] * 1.2,
+                          "z": p.z + v[2] * 1.2, "v": v, "own": p.id, "dm": dm, "t": 0.0})
+        self.pid += 1
+
+    def explode(self, pr, x, y, z):
+        R = 7.0
+        own = self.players.get(pr["own"])
+        self.emit({"t": "ex", "x": round(x, 1), "y": round(y, 1), "z": round(z, 1)})
+        acc = {}
+        for q in list(self.players.values()):
+            if not q.alive or q.ph == "plane":
+                continue
+            if own is not None and (q is own or q.team == own.team):
+                continue
+            cx, cz = q.x, q.z
+            if q.down:
+                cx -= math.sin(q.ry) * .9
+                cz -= math.cos(q.ry) * .9
+            cy = q.y + (.3 if q.down else .9)
+            dist = math.sqrt((cx - x) ** 2 + (cy - y) ** 2 + (cz - z) ** 2)
+            if dist >= R:
+                continue
+            dmg = jround(pr["dm"] * (1 - dist / R))
+            if dmg < 1:
+                continue
+            acc[q] = dmg
+            self.deal(q, dmg, own)
+        seen = set()
+        for cx in range(int((x - R) // CELL), int((x + R) // CELL) + 1):
+            for cz in range(int((z - R) // CELL), int((z + R) // CELL) + 1):
+                for i in GRID.get((cx, cz), ()):
+                    if i in seen or i in self.dead:
+                        continue
+                    seen.add(i)
+                    b = OB[i]
+                    if b["hp"] >= 1e8:
+                        continue
+                    if math.hypot(b["x"] - x, b["z"] - z) <= R:
+                        self.hit_ob(i, 120, [x, y, z], [0, 0, 0], 0)
+        if own is not None and not own.bot and own.client:
+            for q, dmg in acc.items():
+                own.client.send({"t": "hit", "d": dmg, "x": q.x, "y": q.y + 2.1, "z": q.z, "k": 0 if q.alive else 1})
+
+    def step_proj(self, dt):
+        for pr in list(self.proj):
+            d = pr["v"]
+            step = 75.0 * dt
+            o = [pr["x"], pr["y"], pr["z"]]
+            q, ht = self.hit_ray(o, d, step, pr["own"])
+            ro = self.ray_ob(o, d, ht if q else step)
+            th = ro[1] if ro else (ht if q else None)
+            if d[1] < 0 and o[1] + d[1] * step <= .1:
+                tg = max(0.0, (o[1] - .1) / -d[1])
+                if th is None or tg < th:
+                    th = tg
+            pr["t"] += dt
+            if th is None and pr["t"] > 4:
+                th = step
+            if th is not None:
+                self.proj.remove(pr)
+                self.explode(pr, o[0] + d[0] * th, o[1] + d[1] * th, o[2] + d[2] * th)
+            else:
+                pr["x"], pr["y"], pr["z"] = o[0] + d[0] * step, o[1] + d[1] * step, o[2] + d[2] * step
+
     def fire(self, p, d):
         wi, ri = (0, 0) if p.down else (p.w, p.r)     # caido atira so de pistola
-        if not (0 <= wi < 4) or p.ph == "plane":
+        if not (0 <= wi < 5) or p.ph == "plane":
             return
         w = WS[wi]
         n = now_ms()
@@ -549,6 +650,9 @@ class Room:
         p.last = n
         dm = jround(w["d"] * DM[ri or 0])
         self.emit({"t": "sh", "id": p.id, "w": wi, "x": p.x, "y": p.y, "z": p.z, "d": d})
+        if wi == 4:
+            self.launch(p, d, dm)
+            return
         o = [p.x, p.y + 1.6, p.z]
         acc = {}
         for _ in range(w["pe"]):
@@ -612,11 +716,11 @@ class Room:
             w, r = m.get("w"), m.get("r", 0)
             if w == -1:
                 p.w, p.r = -1, 0
-            elif isinstance(w, int) and isinstance(r, int) and [w, r] in p.inv and 0 <= w < 4:
+            elif isinstance(w, int) and isinstance(r, int) and [w, r] in p.inv and 0 <= w < 5:
                 p.w, p.r = w, r
         elif t == "shoot":
             w, r, d = m.get("w"), m.get("r", 0), m.get("d")
-            if not (isinstance(w, int) and isinstance(r, int) and 0 <= w < 4 and (p.down or [w, r] in p.inv)):
+            if not (isinstance(w, int) and isinstance(r, int) and 0 <= w < 5 and (p.down or [w, r] in p.inv)):
                 return
             if not (isinstance(d, list) and len(d) == 3):
                 return
@@ -629,7 +733,7 @@ class Room:
             self.fire(p, [c / l for c in d])
         elif t == "heal":
             a, c = m.get("a"), m.get("c")
-            kit = 4 if (a, c) == (15, 75) else 5 if (a, c) == (50, 100) else None
+            kit = 5 if (a, c) == (15, 75) else 6 if (a, c) == (50, 100) else None
             n = now_ms()
             if kit is None or [kit, 0] not in p.inv or n - p.last_heal < 800:
                 return
@@ -702,7 +806,7 @@ class Room:
                 if p.w < 0 or p.hp < 50:
                     want_gun = p.w < 0
                     for l in self.loot.values():
-                        if (l["w"] < 4) != want_gun:
+                        if (l["w"] < 5) != want_gun:
                             continue
                         d = math.hypot(l["x"] - p.x, l["z"] - p.z)
                         if d < b2:
@@ -773,8 +877,10 @@ class Room:
                             self.knock(p, None)
                         else:
                             self.die(p, None)
+        self.step_proj(dt)
         a = self.alive()
-        self.emit({"t": "s", "r": r, "a": len(a), "p": [
+        self.emit({"t": "s", "r": r, "a": len(a), "j": [[j["id"], round(j["x"], 1), round(j["y"], 1), round(j["z"], 1)]
+                                                          for j in self.proj], "p": [
             [p.id, p.nick, round(p.x, 2), round(p.y, 2), round(p.z, 2), round(p.ry, 3),
              max(0, jround(p.dhp if p.down else p.hp)), 1 if p.alive else 0, p.skin, 0 if p.down else p.w,
              1 if p.ph == "plane" else 0, p.team, 1 if p.down else 0, round(p.revp, 1)] for p in self.players.values()]})
@@ -782,10 +888,15 @@ class Room:
         if len({p.team for p in a}) <= 1:
             for p in a:
                 if not p.bot and p.client:
-                    p.client.send({"t": "dead", "place": 1, "k": p.k})
+                    p.client.send({"t": "dead", "place": 1, "k": p.k, "sp": 0, "md": self.md()})
+            wt = {x.team for x in a}
+            for q in self.players.values():      # quem estava assistindo o parceiro vencedor tambem ganha
+                if q.spec and q.client and not q.alive and q.team in wt:
+                    q.spec = False
+                    q.client.send({"t": "dead", "place": 1, "k": q.k, "sp": 0, "md": self.md()})
             self.emit({"t": "end", "w": " + ".join(p.nick for p in a)})
             self.state = "over"
-        elif not humans_alive:
+        elif not humans_alive and not any(q.spec and q.client for q in self.players.values()):
             self.state = "over"      # so sobraram bots: nao ha mais ninguem para ver
 
     def finish(self):
