@@ -1,5 +1,4 @@
-Flask
-gunicorn
-flask-socketio
-gevent
-packaging
+flask>=3.0
+flask-sock>=0.7
+gunicorn>=22.0
+psycopg2-binary>=2.9
