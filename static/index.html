@@ -123,6 +123,7 @@ body.touch #stw{bottom:auto;top:34px;left:14px;width:170px}
 #lnav button[data-p=pass]{transform:rotate(-6deg);background:linear-gradient(90deg,#ff9d00,#ff5a4d);border-color:#ffd34d;box-shadow:0 0 14px #ffd34d88;margin:6px 4px}
 #pnlt.tilt{display:inline-block;transform:rotate(-4deg);color:#ffd34d}
 </style></head><body>
+<div id="dbg" style="position:fixed;left:4px;top:4px;z-index:99999;pointer-events:none;font:11px monospace;color:#0f0;background:#000b;padding:3px 5px;max-width:96vw;white-space:pre-wrap;line-height:1.3">v3</div>
 <div id="lobby">
   <button id="snd">🔊</button><div id="onl">🟢 <b id="onn">0</b> online</div>
   <div id="lbar"><b id="lv">NÍVEL 1</b><div id="xp"><div id="xpb"></div></div><span id="xpt"></span><span id="co"></span></div>
@@ -152,7 +153,8 @@ body.touch #stw{bottom:auto;top:34px;left:14px;width:170px}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
 const $=i=>document.getElementById(i);
-addEventListener('error',e=>{const a=document.getElementById('ast');if(a&&!a.textContent)a.textContent='Erro: '+e.message;const z=document.getElementById('st');if(z)z.textContent='Erro: '+e.message+' (linha '+e.lineno+')'});
+const dbgL=[];let dbgS=0;function dbg(t){dbgL.push(t);if(dbgL.length>6)dbgL.shift();const d=document.getElementById('dbg');if(d)d.textContent='v3 | '+dbgL.join('\n')}
+addEventListener('error',e=>{const a=document.getElementById('ast');if(a&&!a.textContent)a.textContent='Erro: '+e.message;const z=document.getElementById('st');if(z)z.textContent='Erro: '+e.message+' (linha '+e.lineno+')';dbg('JS ERRO: '+e.message+' L'+e.lineno)});
 const isTouch=('ontouchstart' in window)||navigator.maxTouchPoints>0;
 if(isTouch)document.body.classList.add('touch');
 let jx=0,jy=0,tFire=false,tSprint=false,joyId=null,lookId=null,fireId=null,jc=[0,0],lk=[0,0],fk=[0,0];
@@ -263,10 +265,10 @@ function wsOpen(){
   return new Promise((res,rej)=>{
     if(ws&&ws.readyState===1)return res();
     const s=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws?token='+encodeURIComponent(tok));ws=s;
-    s.onopen=()=>res();
-    s.onerror=()=>rej(new Error('ws'));
-    s.onmessage=e=>{let m;try{m=JSON.parse(e.data)}catch(x){return}try{on(m)}catch(x){$('st').textContent='Erro no jogo ('+m.t+'): '+x.message;$('play').disabled=false;console.error(x)}};
-    s.onclose=()=>{if(ws!==s)return;ws=null;if(phase!=='lobby')toLobby();$('play').disabled=false;$('st').textContent='Conexão com o servidor perdida. Aperte JOGAR de novo.'};
+    s.onopen=()=>{dbg('ws aberto');res()};
+    s.onerror=()=>{dbg('ws erro');rej(new Error('ws'))};
+    s.onmessage=e=>{let m;try{m=JSON.parse(e.data)}catch(x){return}if(m.t==='s'){dbgS++;if(dbgS===1||dbgS%100===0)dbg('msg s x'+dbgS)}else dbg('msg '+m.t);try{on(m)}catch(x){dbg('ERRO em '+m.t+': '+x.message);$('st').textContent='Erro no jogo ('+m.t+'): '+x.message;$('play').disabled=false;console.error(x)}};
+    s.onclose=()=>{dbg('ws fechou');if(ws!==s)return;ws=null;if(phase!=='lobby')toLobby();$('play').disabled=false;$('st').textContent='Conexão com o servidor perdida. Aperte JOGAR de novo.'};
   });
 }
 function tx(m){if(ws&&ws.readyState===1)ws.send(JSON.stringify(m))}
