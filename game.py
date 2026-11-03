@@ -549,10 +549,11 @@ class Room:
                 if t is not v and t.spec and t.client and t.team == v.team:
                     t.spec = False
                     t.client.send({"t": "dead", "place": ta2 + 1, "k": t.k, "sp": 0, "md": self.md()})
+        dist = jround(math.hypot(v.x - k.x, v.z - k.z)) if k and k is not v else None   # distancia do abate
         if self.mode != "solo" and k and k is not v:
-            self.emit({"t": "feed", "x": k.nick + " abateu " + v.nick, "a": k.nick, "v": v.nick})
+            self.emit({"t": "feed", "x": k.nick + " abateu " + v.nick, "a": k.nick, "v": v.nick, "m": dist})
         else:
-            self.emit({"t": "feed", "a": k.nick if k and k is not v else "Zona", "v": v.nick})
+            self.emit({"t": "feed", "a": k.nick if k and k is not v else "Zona", "v": v.nick, "m": dist})
 
     def hit_ray(self, o, d, r, skip):
         best, bt = None, r
@@ -813,11 +814,16 @@ class Room:
                 L = math.sqrt(dx * dx + dy * dy + dz * dz) or 1
                 p.ry = math.atan2(-dx, -dz)
                 if d > 25:
-                    gx, gz = tgt.x, tgt.z
+                    off = getattr(p, "off", None)
+                    if off is None:                      # cada bot flanqueia por um lado diferente
+                        p.off = off = rn(-1, 1) * 18
+                    gx, gz = tgt.x - dz / d * off, tgt.z + dx / d * off
                 else:
                     gx, gz = p.x - dz * .5, p.z + dx * .5
-                if d < WS[p.w]["r"] * .6 and random.random() < .5:
-                    e = .06
+                if d < WS[p.w]["r"] * .6 and random.random() < .45:
+                    e = .09 + d / 500                    # erra mais de longe
+                    if random.random() < .3:
+                        e *= 3                           # e de vez em quando erra feio
                     self.fire(p, [dx / L + rn(-e, e), dy / L + rn(-e, e), dz / L + rn(-e, e)])
             else:
                 best, b2 = None, 1e9
@@ -839,6 +845,17 @@ class Room:
                     gx, gz = p.tg
         if p.ph != "air" and in_lake(p.x, p.z):
             sp *= .5
+        sx = sz = 0.0                                    # afasta dos colegas de time (nao andar grudado)
+        for q in self.players.values():
+            if q is not p and q.alive and q.team == p.team and q.ph != "plane":
+                ax, az = p.x - q.x, p.z - q.z
+                dd = math.hypot(ax, az)
+                if dd < 16:
+                    k = (16 - dd) / 16
+                    sx += ax / (dd or 1) * k
+                    sz += az / (dd or 1) * k
+        gx += sx * 45
+        gz += sz * 45
         dx, dz = gx - p.x, gz - p.z
         d = math.hypot(dx, dz)
         if d > 1:
