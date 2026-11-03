@@ -105,6 +105,8 @@ class Client:
         self.cown = cown
         self.room = None
         self.player = None
+        self.party = None
+        self.skin = 0
         self.q = queue.Queue()
         self.closed = False
         threading.Thread(target=self._writer, daemon=True).start()
@@ -166,6 +168,7 @@ class Player:
         self.revp = 0.0         # progresso da cura (segundos)
         self.rv_by = None
         self.rv_t = 0.0
+        self.pg = None          # codigo da party (pra manter a dupla junta)
 
 
 def now_ms():
@@ -206,10 +209,11 @@ class Room:
                 p.client.put(s)
 
     # ---- entrada / saida ----
-    def add(self, client, skin):
+    def add(self, client, skin, pg=None):
         pid = self.next_id
         self.next_id += 1
         p = Player(pid, client.nick, skin, client=client)
+        p.pg = pg
         self.players[pid] = p
         client.room, client.player = self, p
         client.send({"t": "init", "id": pid})
@@ -440,6 +444,17 @@ class Room:
         bs = [p for p in ps if p.bot]
         tid = 1
         if self.mode == "duo":
+            groups = {}
+            for h in hs:
+                if h.pg:
+                    groups.setdefault(h.pg, []).append(h)
+            for g in groups.values():
+                for h in g:
+                    h.team = tid
+                if len(g) == 1 and bs:
+                    bs.pop().team = tid
+                tid += 1
+            hs = [h for h in hs if not h.pg]
             i = 0
             while i < len(hs):
                 hs[i].team = tid
@@ -524,15 +539,16 @@ class Room:
         return best, (bt if best else 1e9)
 
     def fire(self, p, d):
-        if not (0 <= p.w < 4) or p.ph == "plane" or p.down:
+        wi, ri = (0, 0) if p.down else (p.w, p.r)     # caido atira so de pistola
+        if not (0 <= wi < 4) or p.ph == "plane":
             return
-        w = WS[p.w]
+        w = WS[wi]
         n = now_ms()
         if n - p.last < w["cd"] * .9:
             return
         p.last = n
-        dm = jround(w["d"] * DM[p.r or 0])
-        self.emit({"t": "sh", "id": p.id, "w": p.w, "x": p.x, "y": p.y, "z": p.z, "d": d})
+        dm = jround(w["d"] * DM[ri or 0])
+        self.emit({"t": "sh", "id": p.id, "w": wi, "x": p.x, "y": p.y, "z": p.z, "d": d})
         o = [p.x, p.y + 1.6, p.z]
         acc = {}
         for _ in range(w["pe"]):
@@ -566,7 +582,7 @@ class Room:
         if self.state != "playing" or not p.alive or p.bot:
             return
         t = m.get("t")
-        if p.down and t in ("shoot", "heal", "pick", "open", "drop", "eq"):
+        if p.down and t in ("heal", "pick", "open", "drop", "eq"):
             return
         if t == "rv":
             self.revive_msg(p, m)
@@ -600,7 +616,7 @@ class Room:
                 p.w, p.r = w, r
         elif t == "shoot":
             w, r, d = m.get("w"), m.get("r", 0), m.get("d")
-            if not (isinstance(w, int) and isinstance(r, int) and 0 <= w < 4 and [w, r] in p.inv):
+            if not (isinstance(w, int) and isinstance(r, int) and 0 <= w < 4 and (p.down or [w, r] in p.inv)):
                 return
             if not (isinstance(d, list) and len(d) == 3):
                 return
@@ -608,7 +624,8 @@ class Room:
             if None in d:
                 return
             l = math.sqrt(d[0] ** 2 + d[1] ** 2 + d[2] ** 2) or 1
-            p.w, p.r = w, r
+            if not p.down:
+                p.w, p.r = w, r
             self.fire(p, [c / l for c in d])
         elif t == "heal":
             a, c = m.get("a"), m.get("c")
@@ -663,7 +680,7 @@ class Room:
             bd = 70
             if p.w >= 0:
                 for q in self.players.values():
-                    if q is not p and q.alive and q.ph != "plane" and q.team != p.team:
+                    if q is not p and q.alive and not q.down and q.ph != "plane" and q.team != p.team:
                         d = math.hypot(q.x - p.x, q.z - p.z)
                         if d < bd:
                             bd, tgt = d, q
@@ -759,7 +776,7 @@ class Room:
         a = self.alive()
         self.emit({"t": "s", "r": r, "a": len(a), "p": [
             [p.id, p.nick, round(p.x, 2), round(p.y, 2), round(p.z, 2), round(p.ry, 3),
-             max(0, jround(p.dhp if p.down else p.hp)), 1 if p.alive else 0, p.skin, p.w,
+             max(0, jround(p.dhp if p.down else p.hp)), 1 if p.alive else 0, p.skin, 0 if p.down else p.w,
              1 if p.ph == "plane" else 0, p.team, 1 if p.down else 0, round(p.revp, 1)] for p in self.players.values()]})
         humans_alive = [p for p in a if not p.bot]
         if len({p.team for p in a}) <= 1:
@@ -785,7 +802,7 @@ ROOMS = []
 def join(client, skin, mode="solo", code=""):
     start_loop()
     with LOCK:
-        leave(client)
+        leave_room(client)
         room = None
         for r in ROOMS:
             if r.state == "waiting" and r.mode == mode and r.code == code and len(r.humans()) < r.hmax:
@@ -797,11 +814,139 @@ def join(client, skin, mode="solo", code=""):
         room.add(client, skin)
 
 
-def leave(client):
+def leave_room(client):
     with LOCK:
         room = client.room
         if room is not None:
             room.remove(client)
+
+
+def leave(client):
+    """Chamado quando o navegador desconecta: sai da partida e da sala (party)."""
+    with LOCK:
+        leave_room(client)
+        party_leave(client)
+
+
+# ---------------- party (sala com codigo) ----------------
+PARTIES = {}
+_last_pp = 0.0
+
+
+def valid_skin(client, skin):
+    if not isinstance(skin, int) or isinstance(skin, bool):
+        return 0
+    top = 7 if client.creator else 6
+    if not (0 <= skin <= top) or (skin not in client.cown and not client.creator):
+        return 0
+    return skin
+
+
+def party_state(pt):
+    if pt is None:
+        return {"t": "party", "code": "", "m": []}
+    return {"t": "party", "code": pt["code"], "m": [{"n": c.nick, "s": c.skin} for c in pt["m"]]}
+
+
+def party_push(pt):
+    st = party_state(pt)
+    for c in pt["m"]:
+        c.send(st)
+
+
+def party_in_game(pt):
+    return any(c.room is not None for c in pt["m"])
+
+
+def party_create(client):
+    if client.party is not None:
+        party_push(client.party)
+        return
+    if client.room is not None:
+        return
+    code = ""
+    for _ in range(60):
+        code = "".join(random.choice("ABCDEFGHJKLMNPQRSTUVWXYZ23456789") for _ in range(4))
+        if code not in PARTIES:
+            break
+    pt = {"code": code, "m": [client]}
+    PARTIES[code] = pt
+    client.party = pt
+    party_push(pt)
+
+
+def party_join(client, code):
+    code = "".join(ch for ch in str(code).upper() if ch.isalnum())[:6]
+    if client.room is not None:
+        return
+    pt = PARTIES.get(code)
+    if pt is None:
+        client.send({"t": "perror", "e": "Sala não encontrada. Confira o código."})
+        return
+    if client.party is pt:
+        party_push(pt)
+        return
+    if len(pt["m"]) >= 2:
+        client.send({"t": "perror", "e": "Essa sala já está cheia."})
+        return
+    if party_in_game(pt):
+        client.send({"t": "perror", "e": "Eles já estão em partida. Tente depois."})
+        return
+    party_leave(client)
+    pt["m"].append(client)
+    client.party = pt
+    party_push(pt)
+
+
+def party_leave(client):
+    pt = client.party
+    if pt is None:
+        return
+    client.party = None
+    if client in pt["m"]:
+        pt["m"].remove(client)
+    if not pt["m"]:
+        PARTIES.pop(pt["code"], None)
+    else:
+        party_push(pt)          # o proximo vira lider (primeiro da lista)
+    client.send(party_state(None))
+
+
+def party_start(client):
+    pt = client.party
+    if pt is None or pt["m"][0] is not client or len(pt["m"]) != 2:
+        return
+    if party_in_game(pt):
+        return
+    a, b = pt["m"]
+    if a.closed or b.closed:
+        client.send({"t": "perror", "e": "Seu amigo desconectou."})
+        return
+    start_loop()
+    room = None
+    for r in ROOMS:
+        if r.state == "waiting" and r.mode == "duo" and r.code == "" and len(r.humans()) + 2 <= r.hmax:
+            room = r
+            break
+    if room is None:
+        room = Room("duo", "")
+        ROOMS.append(room)
+    for c in (a, b):
+        c.skin = valid_skin(c, c.skin)
+        room.add(c, c.skin, pg=pt["code"])
+
+
+def _party_tick():
+    global _last_pp
+    n = time.time()
+    for pt in list(PARTIES.values()):
+        for c in list(pt["m"]):
+            if c.closed:
+                party_leave(c)
+    if n - _last_pp > 5:          # reenvia o estado (tambem detecta conexoes mortas)
+        _last_pp = n
+        for pt in list(PARTIES.values()):
+            party_push(pt)
 
 
 def handle(client, raw):
@@ -816,16 +961,32 @@ def handle(client, raw):
     t = m.get("t")
     with LOCK:
         if t == "join":
-            skin = m.get("skin")
-            skin = skin if isinstance(skin, int) and not isinstance(skin, bool) else 0
-            top = 7 if client.creator else 6
-            if not (0 <= skin <= top) or (skin not in client.cown and not client.creator):
-                skin = 0
+            if client.party is not None and len(client.party["m"]) >= 2:
+                client.send({"t": "perror", "e": "Em dupla, só o líder pode iniciar a partida."})
+                return
+            skin = valid_skin(client, m.get("skin"))
+            client.skin = skin
             mode = m.get("mode") if m.get("mode") in ("solo", "duo", "svd") else "solo"
             code = "".join(c for c in str(m.get("code", "")).upper() if c.isalnum())[:6] if mode == "duo" else ""
             join(client, skin, mode, code)
         elif t == "leave":
-            leave(client)
+            leave_room(client)
+            client.send(party_state(client.party))
+        elif t == "pcreate":
+            client.skin = valid_skin(client, m.get("skin"))
+            party_create(client)
+        elif t == "pjoin":
+            client.skin = valid_skin(client, m.get("skin"))
+            party_join(client, m.get("code", ""))
+        elif t == "pleave":
+            if client.room is None:
+                party_leave(client)
+        elif t == "pstart":
+            party_start(client)
+        elif t == "pskin":
+            client.skin = valid_skin(client, m.get("skin"))
+            if client.party is not None:
+                party_push(client.party)
         elif client.room is not None and client.player is not None:
             client.room.on_msg(client.player, m)
 
@@ -834,6 +995,7 @@ def loop():
     while True:
         t0 = time.time()
         with LOCK:
+            _party_tick()
             for room in list(ROOMS):
                 try:
                     room.update()
