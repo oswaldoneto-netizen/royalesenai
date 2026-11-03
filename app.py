@@ -10,7 +10,6 @@ app = Flask(__name__, static_folder='static')
 app.config['SECRET_KEY'] = 'royale-senai-secret'
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
 
-# Estado das salas e fila de jogadores
 queue = []
 rooms = {}
 MAX_PLAYERS = 12
@@ -55,7 +54,6 @@ def me():
 def save():
     return jsonify({'status': 'ok'})
 
-# WebSocket - Matchmaking e Multiplayer em tempo real
 @socketio.on('connect')
 def handle_connect():
     pass
@@ -63,8 +61,10 @@ def handle_connect():
 @socketio.on('disconnect')
 def handle_disconnect():
     sid = request.sid
-    if sid in queue:
-        queue.remove(sid)
+    for p in queue:
+        if p['sid'] == sid:
+            queue.remove(p)
+            break
 
 @socketio.on('join_match')
 def handle_join_match(data):
@@ -75,12 +75,11 @@ def handle_join_match(data):
         'skin': data.get('skin', 0)
     }
     
-    if sid not in queue:
+    if not any(p['sid'] == sid for p in queue):
         queue.append(player_info)
     
     emit('lobby', {'n': len(queue), 'left': 3}, broadcast=True)
     
-    # Se atingiu a capacidade máxima ou passou tempo da fila, cria a sala
     if len(queue) >= MAX_PLAYERS:
         start_room()
 
@@ -112,3 +111,4 @@ def start_room():
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     socketio.run(app, host='0.0.0.0', port=port)
+    
