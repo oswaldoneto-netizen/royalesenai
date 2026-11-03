@@ -20,7 +20,9 @@ BASE = os.path.dirname(os.path.abspath(__file__))
 
 # ---------------- configuracao ----------------
 N_SKINS = 13                                       # personagens (0..12; 7 = criador)
-MAX_PLAYERS = 12                                   # humanos + bots por sala
+MAX_PLAYERS = 22                                   # (legado) solo
+MODE_MAX = {"solo": 22, "duo": 28, "svd": 28, "squad": 35, "svq": 35}   # humanos + bots por sala
+RECORD_HOOK = None                                 # funcao(nick, kills) definida pelo flask_app
 WAIT_SECS = int(os.environ.get("WAIT_SECS", "12"))  # espera por mais jogadores antes de comecar
 TICK = 0.05                                        # 20 atualizacoes por segundo
 PLANE_MS = 20000
@@ -37,7 +39,9 @@ WS = [
 ]
 DM = [1, 1.15, 1.3, 1.5]
 BOT_NAMES = ["Raio", "Tigre", "Lobo", "Nina", "Zeca", "Bia", "Dudu", "Kira", "Maverick", "Luna", "Fênix",
-             "Pedro", "Duda", "Thor", "Sol", "Neo"]
+             "Pedro", "Duda", "Thor", "Sol", "Neo", "Jade", "Cacá", "Bento", "Lara", "Gui", "Mel", "Rafa",
+             "Vitor", "Alice", "Caio", "Lia", "Davi", "Yuri", "Bruna", "Enzo", "Ravi", "Maya", "Théo",
+             "Ícaro", "Nando", "Pérola", "Juca", "Cris", "Tito"]
 
 # ---------------- mapa (gerado do index.html por tools/gen_map) ----------------
 with open(os.path.join(BASE, "map_data.json"), encoding="utf-8") as _f:
@@ -93,6 +97,12 @@ def num(v):
     if v != v or v in (float("inf"), float("-inf")):
         return None
     return float(v)
+
+
+def _record(p):
+    """Registra no ranking (melhor partida em abates) de um humano."""
+    if RECORD_HOOK and not p.bot and p.k > 0:
+        threading.Thread(target=RECORD_HOOK, args=(p.nick, p.k), daemon=True).start()
 
 
 # ---------------- conexao de um jogador ----------------
@@ -170,7 +180,8 @@ class Player:
         self.revp = 0.0         # progresso da cura (segundos)
         self.rv_by = None
         self.rv_t = 0.0
-        self.pg = None          # codigo da party (pra manter a dupla junta)
+        self.pg = None          # codigo da party (pra manter o grupo junto)
+        self.fill = False       # grupo aceita completar o time com aleatorios
         self.spec = False       # morto, assistindo o parceiro
 
 
@@ -182,7 +193,7 @@ def now_ms():
 class Room:
     def __init__(self, mode="solo", code=""):
         self.mode, self.code = mode, code
-        self.maxp = MAX_PLAYERS if mode == "solo" else 16
+        self.maxp = MODE_MAX.get(mode, MAX_PLAYERS)
         self.hmax = 2 if code else self.maxp
         self.state = "waiting"       # waiting -> playing -> over
         self.players = {}
@@ -214,11 +225,12 @@ class Room:
                 p.client.put(s)
 
     # ---- entrada / saida ----
-    def add(self, client, skin, pg=None):
+    def add(self, client, skin, pg=None, fill=False):
         pid = self.next_id
         self.next_id += 1
         p = Player(pid, client.nick, skin, client=client)
         p.pg = pg
+        p.fill = fill
         self.players[pid] = p
         client.room, client.player = self, p
         client.send({"t": "init", "id": pid})
@@ -237,6 +249,7 @@ class Room:
             del self.players[p.id]
             self.send_lobby(True)
         elif self.state == "playing":
+            _record(p)
             if p.alive:
                 p.alive = False
                 self.emit({"t": "feed", "a": p.nick + " saiu"})
@@ -251,7 +264,7 @@ class Room:
             return
         self.last_lobby = n
         left = max(0, int(math.ceil(self.wait_until - n)))
-        self.emit({"t": "lobby", "n": len(self.humans()), "left": left, "max": MAX_PLAYERS})
+        self.emit({"t": "lobby", "n": len(self.humans()), "left": left, "max": self.maxp})
 
     # ---- inicio ----
     def start(self):
@@ -286,7 +299,7 @@ class Room:
     def gen_loot(self):
         self.loot, self.chests, self.nid = {}, {}, 1000
         li = 0
-        for _ in range(110):
+        for _ in range(110 + (self.maxp - 12) * 4):     # mais jogadores = mais loot
             x, z = rp(400)
             self.add_loot(li, x, z)
             li += 1
@@ -294,7 +307,7 @@ class Room:
             for _ in range(nl):
                 self.add_loot(li, qx + rn(-s, s), qz + rn(-s, s))
                 li += 1
-        for i in range(30):
+        for i in range(30 + (self.maxp - 12)):
             x, z = rp(400)
             self.chests["c%d" % i] = {"id": "c%d" % i, "x": x, "z": z, "open": 0}
         for j, (qx, qz, s, nl, nc) in enumerate(POIS):
@@ -449,37 +462,40 @@ class Room:
         hs = [p for p in ps if not p.bot]
         bs = [p for p in ps if p.bot]
         tid = 1
-        if self.mode == "duo":
+        size = 4 if self.mode in ("squad", "svq") else 2     # tamanho dos times de bots / times completos
+        if self.mode in ("duo", "squad"):
             groups = {}
             for h in hs:
                 if h.pg:
                     groups.setdefault(h.pg, []).append(h)
+            pool = [h for h in hs if not h.pg]               # quem entrou sozinho
+            random.shuffle(pool)
+            teams = []
             for g in groups.values():
+                fl = bool(g[0].fill)
+                while fl and len(g) < size and pool:         # grupo que aceita aleatorios
+                    g.append(pool.pop())
+                teams.append((g, fl or self.mode == "duo"))
+            while pool:
+                g = []
+                while pool and len(g) < size:
+                    g.append(pool.pop())
+                teams.append((g, True))
+            for g, pad in teams:
                 for h in g:
                     h.team = tid
-                if len(g) == 1 and bs:
+                while pad and len(g) < size and bs:         # completa com bots
                     bs.pop().team = tid
+                    g.append(None)
                 tid += 1
-            hs = [h for h in hs if not h.pg]
-            i = 0
-            while i < len(hs):
-                hs[i].team = tid
-                if i + 1 < len(hs):
-                    hs[i + 1].team = tid
-                    i += 2
-                else:
-                    if bs:
-                        bs.pop().team = tid
-                    i += 1
-                tid += 1
-        else:
+        else:                                                # solo / solo vs duplas / solo vs esquadrao
             for h in hs:
                 h.team = tid
                 tid += 1
         while bs:
-            bs.pop().team = tid
-            if bs:
-                bs.pop().team = tid
+            for _ in range(size):
+                if bs:
+                    bs.pop().team = tid
             tid += 1
 
     def can_down(self, q):
@@ -522,6 +538,7 @@ class Room:
                 x, z = self.resolve(v.x + rn(-2, 2), v.z + rn(-2, 2), 1.2, 0)
                 self.drop_loot(w, r, x, z)
             v.inv = []
+            _record(v)
             ta = self.teams_alive()
             sp = any(q.team == v.team for q in self.alive())
             v.spec = sp
@@ -558,7 +575,7 @@ class Room:
         return best, (bt if best else 1e9)
 
     def md(self):
-        return "duo" if self.mode == "duo" else "solo"
+        return self.mode if self.mode in ("duo", "squad") else "solo"
 
     def deal(self, q, dmg, killer):
         if q.down:
@@ -889,6 +906,7 @@ class Room:
         if len({p.team for p in a}) <= 1:
             for p in a:
                 if not p.bot and p.client:
+                    _record(p)
                     p.client.send({"t": "dead", "place": 1, "k": p.k, "sp": 0, "md": self.md()})
             wt = {x.team for x in a}
             for q in self.players.values():      # quem estava assistindo o parceiro vencedor tambem ganha
@@ -998,8 +1016,8 @@ def party_join(client, code):
     if client.party is pt:
         party_push(pt)
         return
-    if len(pt["m"]) >= 2:
-        client.send({"t": "perror", "e": "Essa sala já está cheia."})
+    if len(pt["m"]) >= 4:
+        client.send({"t": "perror", "e": "Essa sala já está cheia (máximo 4)."})
         return
     if party_in_game(pt):
         client.send({"t": "perror", "e": "Eles já estão em partida. Tente depois."})
@@ -1024,28 +1042,34 @@ def party_leave(client):
     client.send(party_state(None))
 
 
-def party_start(client):
+def party_start(client, m=None):
+    m = m or {}
     pt = client.party
-    if pt is None or pt["m"][0] is not client or len(pt["m"]) != 2:
+    n = len(pt["m"]) if pt else 0
+    if pt is None or pt["m"][0] is not client or not (2 <= n <= 4):
         return
     if party_in_game(pt):
         return
-    a, b = pt["m"]
-    if a.closed or b.closed:
-        client.send({"t": "perror", "e": "Seu amigo desconectou."})
+    mode = m.get("mode")
+    if mode not in ("duo", "squad") or (mode == "duo" and n != 2):
+        mode = "duo" if n == 2 else "squad"
+    fill = bool(m.get("fill")) and mode == "squad" and n < 4
+    members = list(pt["m"])
+    if any(c.closed for c in members):
+        client.send({"t": "perror", "e": "Um amigo desconectou."})
         return
     start_loop()
     room = None
     for r in ROOMS:
-        if r.state == "waiting" and r.mode == "duo" and r.code == "" and len(r.humans()) + 2 <= r.hmax:
+        if r.state == "waiting" and r.mode == mode and r.code == "" and len(r.humans()) + n <= r.hmax:
             room = r
             break
     if room is None:
-        room = Room("duo", "")
+        room = Room(mode, "")
         ROOMS.append(room)
-    for c in (a, b):
+    for c in members:
         c.skin = valid_skin(c, c.skin)
-        room.add(c, c.skin, pg=pt["code"])
+        room.add(c, c.skin, pg=pt["code"], fill=fill)
 
 
 def _party_tick():
@@ -1074,11 +1098,11 @@ def handle(client, raw):
     with LOCK:
         if t == "join":
             if client.party is not None and len(client.party["m"]) >= 2:
-                client.send({"t": "perror", "e": "Em dupla, só o líder pode iniciar a partida."})
+                client.send({"t": "perror", "e": "Em grupo, só o líder pode iniciar a partida."})
                 return
             skin = valid_skin(client, m.get("skin"))
             client.skin = skin
-            mode = m.get("mode") if m.get("mode") in ("solo", "duo", "svd") else "solo"
+            mode = m.get("mode") if m.get("mode") in ("solo", "duo", "svd", "squad", "svq") else "solo"
             code = "".join(c for c in str(m.get("code", "")).upper() if c.isalnum())[:6] if mode == "duo" else ""
             join(client, skin, mode, code)
         elif t == "leave":
@@ -1094,7 +1118,7 @@ def handle(client, raw):
             if client.room is None:
                 party_leave(client)
         elif t == "pstart":
-            party_start(client)
+            party_start(client, m)
         elif t == "pskin":
             client.skin = valid_skin(client, m.get("skin"))
             if client.party is not None:

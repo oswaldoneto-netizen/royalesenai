@@ -120,7 +120,7 @@ def clean_cl(v):
     return {k: 1 for k in v if isinstance(k, str) and CL_RE.match(k)}
 
 
-STAT_KEYS = ("k", "ws", "wd", "gs", "gd")   # abates, vitorias solo/dupla, partidas solo/dupla
+STAT_KEYS = ("k", "ws", "wd", "wq", "gs", "gd", "gq")   # abates, vitorias e partidas: solo/dupla/esquadrao
 
 
 def clean_stats(v):
@@ -210,6 +210,11 @@ CREATE TABLE IF NOT EXISTS sessions(
   created INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ix_seen ON users(last_seen);
+CREATE TABLE IF NOT EXISTS records(
+  nick TEXT PRIMARY KEY COLLATE NOCASE,
+  kills INTEGER NOT NULL,
+  ts INTEGER NOT NULL
+);
 """
 SCHEMA_PG = """
 CREATE TABLE IF NOT EXISTS users(
@@ -227,6 +232,12 @@ CREATE TABLE IF NOT EXISTS sessions(
   created BIGINT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ix_seen ON users(last_seen);
+CREATE TABLE IF NOT EXISTS records(
+  nick TEXT NOT NULL,
+  kills INTEGER NOT NULL,
+  ts BIGINT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_records_nick ON records(LOWER(nick));
 """
 
 
@@ -260,6 +271,28 @@ def init_db():
 
 
 init_db()
+
+
+def record_kills(nick, kills):
+    """Guarda a melhor partida (mais abates) de cada jogador."""
+    con = db()
+    try:
+        row = con.execute("SELECT kills FROM records WHERE LOWER(nick)=LOWER(?)", (nick,)).fetchone()
+        if row is None:
+            con.execute("INSERT INTO records(nick, kills, ts) VALUES(?,?,?)", (nick, kills, int(time.time())))
+        elif kills > row["kills"]:
+            con.execute("UPDATE records SET kills=?, ts=? WHERE LOWER(nick)=LOWER(?)",
+                        (kills, int(time.time()), nick))
+        else:
+            return
+        con.commit()
+    except Exception as e:
+        print("erro ao salvar recorde:", repr(e), flush=True)
+    finally:
+        con.close()
+
+
+game.RECORD_HOOK = record_kills
 game.start_loop()
 
 
@@ -426,6 +459,16 @@ def ping():
         con.execute("UPDATE users SET last_seen=? WHERE id=?", (int(time.time()), row["id"]))
         con.commit()
         return jsonify({"online": online_count(con), "now": int(time.time() * 1000)})
+    finally:
+        con.close()
+
+
+@app.route("/api/leaderboard")
+def leaderboard():
+    con = db()
+    try:
+        rows = con.execute("SELECT nick, kills FROM records ORDER BY kills DESC, ts ASC LIMIT 3").fetchall()
+        return jsonify({"top": [{"nick": r["nick"], "kills": r["kills"]} for r in rows]})
     finally:
         con.close()
 
