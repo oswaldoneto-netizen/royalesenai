@@ -213,7 +213,7 @@ body.spec #bar,body.spec #hpw,body.spec #stw,body.spec #wp,body.spec #cross,body
     <div id="pvw"><canvas id="pv"></canvas><div id="pvn"></div></div>
     <div id="lside">
       <div class="card"><div id="acc"><span>👤 <b id="accn"></b></span><button id="out">Sair</button></div><button id="play">JOGAR</button><div id="st"></div></div>
-      <div id="lnav"><button data-p="closet">👕 VESTIÁRIO</button><button data-p="shop">🛒 LOJA</button><button data-p="pass">⭐ PASSE TEMPORADA 1</button><button data-p="panda">🐼 PACOTE PANDA • R$ 5</button><button data-p="profile">👤 PERFIL</button><button data-p="box">🎁 CAIXA</button></div><div class="card" id="lb"></div><div class="card" id="party"></div><button id="rcode" style="padding:12px;font-size:16px;border-radius:10px;border:2px solid #35e0ff88;background:#12303c;color:#fff;cursor:pointer">🔑 SALA COM CÓDIGO (DUPLAS)</button>
+      <div id="lnav"><button data-p="closet">👕 VESTIÁRIO</button><button data-p="shop">🛒 LOJA</button><button data-p="pass">⭐ PASSE TEMPORADA 1</button><button data-p="profile">👤 PERFIL</button><button data-p="box">🎁 CAIXA</button></div><div class="card" id="lb"></div><div class="card" id="party"></div><button id="rcode" style="padding:12px;font-size:16px;border-radius:10px;border:2px solid #35e0ff88;background:#12303c;color:#fff;cursor:pointer">🔑 SALA COM CÓDIGO (DUPLAS)</button>
     </div>
   </div>
   <div id="pnl"><div id="pnlh"><b id="pnlt"></b><button id="pcl">✕</button></div><div id="pnlb"></div></div>
@@ -261,9 +261,9 @@ const CH=[
 ['Leo Atiçado',0xf0c8a0,0x3b4a6b,'none',0xf0c8a0,2500,'shop','none',2,{hair:0xf2d15c,bare:1}],
 ['Jadrian',0xe08a1e,0x2f3b52,'none',0xe08a1e,2500,'shop','none',2,{hair:0x1a120b,short:1,fat:1.32}],
 ['Cavaleiro Dourado',0xffc93c,0xc9961a,'knight',0xffd84a,5000,'shop','knight',3,{}],
-['Panda',0xf4f4f4,0x15151a,'panda',0x15151a,0,'pix','none',3,{}]];
+['Rei do Gelo',0x14141c,0x0b0b12,'icecrown',0x35c8ff,0,'pix','aura',3,{hair:0xbfe9ff}]];
 const WSK=[['Padrão',0x9aa4b2,0,'free',0],['Ouro',0xffc93c,1000,'shop',1],['Neon',0x00ffd5,1700,'shop',2],['Fogo',0xff4a1c,1900,'shop',2],['Camuflado',0x5b7a3a,0,'pass',1],['Galáxia',0x7a4bff,0,'pass',2],['Diamante',0x7ee8ff,0,'pass',3],['Criador',0xff2d95,0,'creator',3],
-['Tangerina',0xff9f43,600,'shop',0],['Gelo',0x9fe4ff,1100,'shop',1],['Veneno',0x7dff2a,2000,'shop',2],['Obsidiana',0x4b3a7a,3500,'shop',3],['Panda',0xf4f4f4,0,'pix',3]];
+['Tangerina',0xff9f43,600,'shop',0],['Gelo',0x9fe4ff,1100,'shop',1],['Veneno',0x7dff2a,2000,'shop',2],['Obsidiana',0x4b3a7a,3500,'shop',3],['Rei do Gelo',0x2fb8ff,0,'pix',3]];
 const PASS=[[50,['$',100]],[60,['w',4]],[70,['c',4]],[80,['$',200]],[90,['w',5]],[100,['c',5]],[110,['$',300]],[120,['w',6]],[130,['$',400]],[150,['c',6]],
 [160,['$',500]],[170,['$',600]],[180,['$',700]],[190,['$',800]],[200,['$',900]],[220,['$',1000]],[240,['$',1200]],[260,['$',1500]],[280,['$',2000]],[300,['c',8]]],PASSP=800;
 const ITN=['Pistola','Rifle','Shotgun','Sniper','Bazuca','Bandagem','Kit médico','Colete'],RAR=[['Incomum',0x4cd964],['Raro',0x3aa0ff],['Épico',0xb15cff],['Lendário',0xffa51f]],DM=[1,1.15,1.3,1.5];var pvUpd=null;
@@ -318,7 +318,7 @@ function renderShop(B){
     };
     g.appendChild(b);
   });
-  const n=document.createElement('div');n.className='pcap';n.style.marginTop='10px';n.textContent='1 personagem + 2 skins de arma + 1 emote de dança a cada 15 minutos. Quanto mais rara, mais cara!';B.appendChild(n);
+  const n=document.createElement('div');n.className='pcap';n.style.marginTop='10px';n.textContent='1 personagem + 2 skins de arma + 1 emote de dança a cada 15 minutos. Quanto mais rara, mais cara!';B.appendChild(n);renderBuy(B);
   updShopT();
 }
 // ----- caixa misteriosa (roleta) -----
@@ -371,7 +371,7 @@ function renderLobby(){
   const[l,x,n]=lvl();$('lv').textContent='NÍVEL '+l;$('xpb').style.width=(x/n*100)+'%';$('xpt').textContent=x+' / '+n+' XP';$('co').textContent='🪙 '+(save.creator?'∞':save.coins);
   if(pvUpd)pvUpd();
   const P=$('pnl');P.style.display=panel?'flex':'none';P.className=panel==='pass'?'wide':'';if(!panel)return;
-  $('pnlt').textContent={closet:'VESTIÁRIO',shop:'LOJA',pass:'PASSE TEMPORADA 1',profile:'PERFIL',box:'CAIXA MISTERIOSA',panda:'PACOTE PANDA'}[panel];$('pnlt').className=panel==='pass'?'tilt':'';
+  $('pnlt').textContent={closet:'VESTIÁRIO',shop:'LOJA',pass:'PASSE TEMPORADA 1',profile:'PERFIL',box:'CAIXA MISTERIOSA'}[panel];$('pnlt').className=panel==='pass'?'tilt':'';
   const B=$('pnlb');B.innerHTML='';
   const cat=(title,k)=>{
     const h=document.createElement('h3');h.textContent=title;B.appendChild(h);const g=document.createElement('div');g.className='grid';B.appendChild(g);
@@ -408,43 +408,54 @@ function renderLobby(){
   }else if(panel==='profile'){renderProfile(B)
   }else if(panel==='shop'){renderShop(B)
   }else if(panel==='box'){renderBox(B)
-  }else if(panel==='panda'){renderPanda(B)
   }else{cat('Personagens','c');cat('Skins de armas','w');cat('Emotes de dança (tecla B)','e')}
 }
-// ----- Pacote Panda (Pix) -----
-var pdInfo=null,pdPoll=null,pdMsg='';
-function pdDone(){clearInterval(pdPoll);pdPoll=null;pdInfo=null;try{localStorage.removeItem('brpix')}catch(e){}giveItem('c',13);giveItem('w',12);uiSnd('claim');persistOwn();renderLobby()}
-function pdStatus(id,cb){fetch('/api/pix/status?id='+encodeURIComponent(id),{headers:{'X-Token':tok}}).then(r=>r.ok?r.json():null).then(d=>{if(d)cb(d.status)}).catch(()=>{})}
-function pdCheck(){if(!pdInfo)return;pdStatus(pdInfo.id,s=>{
-  if(s==='approved')pdDone();
-  else if(s==='cancelled'||s==='expired'||s==='rejected'){clearInterval(pdPoll);pdPoll=null;pdInfo=null;pdMsg='Esse Pix expirou. Gere outro.';renderLobby()}})}
-function pdRecover(){let id='';try{id=localStorage.getItem('brpix')||''}catch(e){}if(id&&!own('c',13))pdStatus(id,s=>{if(s==='approved')pdDone()})}
-function pdBuy(){
+// ----- Pix: Pacote Rei do Gelo + moedas -----
+const COINP=[['c5k',5000,'R$ 1,00','🪙'],['c40k',40000,'R$ 3,00','💰'],['c70k',70000,'R$ 5,00','💎']];
+var pdInfo=null,pdPoll=null,pdMsg='',pdBusy=false;
+function pdStop(){clearInterval(pdPoll);pdPoll=null;pdInfo=null}
+function pdStatus(id,cb){fetch('/api/pix/status?id='+encodeURIComponent(id),{headers:{'X-Token':tok}}).then(r=>r.ok?r.json():null).then(d=>{if(d)cb(d)}).catch(()=>{}).finally(()=>{pdBusy=false})}
+function pdCheck(){if(!pdInfo||pdBusy)return;pdBusy=true;const prod=pdInfo.prod;pdStatus(pdInfo.id,d=>{
+  if(d.status==='approved'){
+    if(prod==='panda'){pdStop();giveItem('c',13);giveItem('w',12);uiSnd('claim');pdMsg='✅ Pacote Rei do Gelo liberado!';persistOwn();renderLobby()}
+    else{const c=d.coins|0;pdStop();if(c>0){save.coins+=c;uiSnd('claim');pdMsg='✅ +'+c.toLocaleString('pt-BR')+' moedas na sua conta!';persistOwn()}renderLobby()}
+  }else if(d.status==='cancelled'||d.status==='expired'||d.status==='rejected'){pdStop();pdMsg='Esse Pix expirou. Gere outro.';renderLobby()}})}
+function pdRecover(){fetch('/api/pix/recover',{method:'POST',headers:{'X-Token':tok}}).then(r=>r.ok?r.json():null).then(d=>{
+  if(!d)return;let ch=false;
+  if(d.panda&&!own('c',13)){giveItem('c',13);giveItem('w',12);ch=true}
+  if(d.coins>0){save.coins+=d.coins;ch=true;uiSnd('claim')}
+  if(ch){persistOwn();renderLobby()}}).catch(()=>{})}
+function pdBuy(prod,label){
   pdMsg='Gerando o Pix...';renderLobby();
-  fetch('/api/pix/create',{method:'POST',headers:{'X-Token':tok}}).then(r=>r.json().then(d=>({ok:r.ok,d}))).then(x=>{
+  fetch('/api/pix/create',{method:'POST',headers:{'Content-Type':'application/json','X-Token':tok},body:JSON.stringify({prod:prod})}).then(r=>r.json().then(d=>({ok:r.ok,d}))).then(x=>{
     if(!x.ok){pdMsg=x.d.error||'Erro ao gerar o Pix.';renderLobby();return}
-    pdInfo=x.d;pdMsg='';try{localStorage.setItem('brpix',x.d.id)}catch(e){}
+    pdInfo=x.d;pdInfo.prod=prod;pdInfo.label=label;pdMsg='';
     clearInterval(pdPoll);pdPoll=setInterval(pdCheck,4000);renderLobby();
   }).catch(()=>{pdMsg='Sem conexão com o servidor.';renderLobby()});
 }
-function renderPanda(B){
+function pixBox(B){
   const w=document.createElement('div');w.className='pdw';B.appendChild(w);
-  w.innerHTML='<div class="row2"><img src="'+charThumb(13)+'"><img src="'+gunIcon(1,WSK[12][1])+'" style="height:70px"></div><div style="font:26px Impact,sans-serif;color:#ffa51f;letter-spacing:1px">PACOTE PANDA 🐼</div><div class="pcap">Personagem Panda + skin de arma Panda, as duas LENDÁRIAS.<br>Exclusivo: não aparece na loja nem na caixa. Pagamento único por Pix.</div>';
-  if(own('c',13)){
-    const o=document.createElement('b');o.style.cssText='color:#4be37a;font-size:18px';o.textContent='✅ Você já tem o Pacote Panda!';w.appendChild(o);
-    const b=document.createElement('button');b.className='pbuy';b.textContent='EQUIPAR PANDA 🐼';b.onclick=()=>{equip('c',13);equip('w',12);persist();renderLobby()};w.appendChild(b);return;
-  }
-  if(pdInfo){
-    const bx=document.createElement('div');bx.className='pdbox';
-    bx.innerHTML='<b>Pague R$ 5,00 por Pix</b>'+(pdInfo.qr?'<img src="data:image/png;base64,'+pdInfo.qr+'">':'')+'<small>Ou use o Pix Copia e Cola:</small><textarea readonly></textarea>';
-    const ta=bx.querySelector('textarea');ta.value=pdInfo.code;
-    const cp=document.createElement('button');cp.className='pbuy';cp.textContent='COPIAR CÓDIGO';
-    cp.onclick=()=>{ta.select();try{navigator.clipboard.writeText(pdInfo.code)}catch(e){try{document.execCommand('copy')}catch(x){}}cp.textContent='COPIADO!';setTimeout(()=>cp.textContent='COPIAR CÓDIGO',1200)};
-    const st=document.createElement('div');st.className='pcap';st.textContent='⏳ Aguardando o pagamento... o Panda é liberado sozinho assim que o Pix cair.';
-    bx.append(cp,st);w.appendChild(bx);return;
-  }
-  const b=document.createElement('button');b.className='pbuy';b.textContent='COMPRAR POR R$ 5,00 (PIX)';b.onclick=pdBuy;w.appendChild(b);
-  if(pdMsg){const m=document.createElement('div');m.className='pcap';m.textContent=pdMsg;w.appendChild(m)}
+  const bx=document.createElement('div');bx.className='pdbox';
+  bx.innerHTML='<b></b>'+(pdInfo.qr?'<img src="data:image/png;base64,'+pdInfo.qr+'">':'')+'<small>Ou use o Pix Copia e Cola:</small><textarea readonly></textarea>';
+  bx.firstChild.textContent='Pague '+pdInfo.label+' por Pix';
+  const ta=bx.querySelector('textarea');ta.value=pdInfo.code;
+  const cp=document.createElement('button');cp.className='pbuy';cp.textContent='COPIAR CÓDIGO';
+  cp.onclick=()=>{ta.select();try{navigator.clipboard.writeText(pdInfo.code)}catch(e){try{document.execCommand('copy')}catch(x){}}cp.textContent='COPIADO!';setTimeout(()=>cp.textContent='COPIAR CÓDIGO',1200)};
+  const st=document.createElement('div');st.className='pcap';st.textContent='⏳ Aguardando o pagamento... assim que o Pix cair, o item é liberado sozinho.';
+  const cn=document.createElement('button');cn.className='pbuy';cn.style.background='#2a3a44';cn.textContent='VOLTAR';cn.onclick=()=>{pdStop();pdMsg='';renderLobby()};
+  bx.append(cp,st,cn);w.appendChild(bx);
+}
+function renderBuy(B){
+  const h=document.createElement('h3');h.textContent='💰 LOJA • COMPRAR MOEDAS';h.style.cssText='margin-top:20px;text-align:center;color:#ffd34d;font-family:Impact,sans-serif;letter-spacing:1px;font-size:20px';B.appendChild(h);
+  if(pdInfo){pixBox(B);return}
+  if(pdMsg){const m=document.createElement('div');m.className='pcap';m.style.margin='6px 0';m.textContent=pdMsg;B.appendChild(m)}
+  const g=document.createElement('div');g.className='grid';B.appendChild(g);
+  const card=(html,name,sub,col,fn)=>{const b=document.createElement('button');b.className='sk';b.style.boxShadow='inset 0 -4px 0 '+col;b.innerHTML=html+'<span></span><small></small>';b.querySelector('span').textContent=name;b.querySelector('small').textContent=sub;b.onclick=fn;g.appendChild(b)};
+  COINP.forEach(p=>card('<div style="font-size:54px;height:84px;line-height:84px">'+p[3]+'</div>',p[1].toLocaleString('pt-BR')+' moedas','Pix • '+p[2],'#ffd34d',()=>{audioInit();pdBuy(p[0],p[2]+' ('+p[1].toLocaleString('pt-BR')+' moedas)')}));
+  const has=own('c',13);
+  card(tagHtml('c',13)+'<img src="'+charThumb(13)+'">','Pacote Rei do Gelo',has?'✅ Você tem • Equipar':'Skin + arma • R$ 2,00','#ffa51f',()=>{
+    if(has){equip('c',13);equip('w',12);persist();renderLobby()}else{audioInit();pdBuy('panda','R$ 2,00 (Pacote Rei do Gelo)')}});
+  const n=document.createElement('div');n.className='pcap';n.style.marginTop='10px';n.textContent='Pagamento por Pix. As moedas caem na conta sozinhas assim que o pagamento é confirmado.';B.appendChild(n);
 }
 function renderProfile(B){
   const st=Object.assign({k:0,ws:0,wd:0,wq:0,gs:0,gd:0,gq:0},save.stats),[l]=lvl();
@@ -702,13 +713,14 @@ function box(w,h,d,col,x,y,z){const m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d
 function cyl(r,l,col,x,y,z){const m=new THREE.Mesh(new THREE.CylinderGeometry(r,r,l,8),new THREE.MeshLambertMaterial({color:col}));m.rotation.x=Math.PI/2;m.position.set(x,y,z);return m}
 function makeGun(w,c,full){
   const sk=full&&c!==0x9aa4b2,sh=k=>new THREE.Color(c).multiplyScalar(k).getHex();
-  const pn=full&&c===0xf4f4f4;   // skin Panda: branca com detalhes pretos
-  const g=new THREE.Group(),D=pn?0x111114:sk?sh(.4):0x2a2d33,M=pn?0x1c1c22:sk?sh(.7):0x555a63,Wd=pn?0x16161a:sk?sh(.55):0x6b4a2b;
+  const pn=full&&c===0x2fb8ff;   // skin Rei do Gelo: corpo escuro com listra azul brilhante
+  const g=new THREE.Group(),D=pn?0x0b0b12:sk?sh(.4):0x2a2d33,M=pn?0x14202c:sk?sh(.7):0x555a63,Wd=pn?0x10161e:sk?sh(.55):0x6b4a2b;
   if(w===0)g.add(box(.06,.07,.3,M,0,.03,-.05),box(.062,.04,.3,c,0,.07,-.05),box(.05,.15,.07,D,0,-.08,.06),cyl(.018,.08,D,0,.03,-.22),box(.02,.02,.02,D,0,.1,-.17),box(.02,.02,.02,D,0,.1,.08));
   else if(w===1)g.add(box(.07,.1,.45,c,0,0,-.05),box(.075,.075,.3,D,0,0,-.4),cyl(.02,.3,M,0,.01,-.68),cyl(.03,.06,D,0,.01,-.84),box(.06,.12,.24,Wd,0,-.01,.3),box(.05,.17,.07,D,0,-.12,.02),box(.055,.2,.08,M,0,-.15,-.15),box(.03,.05,.12,D,0,.075,-.1),box(.02,.04,.02,D,0,.1,-.6));
   else if(w===2)g.add(box(.08,.1,.3,M,0,0,0),cyl(.03,.62,c,0,.02,-.48),cyl(.026,.5,D,0,-.04,-.42),box(.09,.07,.16,Wd,0,-.045,-.3),box(.07,.13,.3,Wd,0,-.03,.28),box(.05,.14,.06,D,0,-.1,.1));
   else if(w===4)g.add(cyl(.09,1.1,c,0,.02,-.35),cyl(.125,.16,D,0,.02,-.9),cyl(.125,.16,D,0,.02,.2),cyl(.06,.28,0xcc3333,0,.02,-1.08),box(.05,.14,.06,D,0,-.1,.02),box(.06,.1,.1,M,0,.13,-.1),box(.05,.1,.05,D,0,.0,-.5))
   else g.add(box(.07,.1,.42,c,0,0,0),cyl(.02,.62,D,0,.01,-.52),cyl(.032,.07,M,0,.01,-.86),cyl(.04,.34,D,0,.105,-.05),cyl(.034,.01,0x66ccff,0,.105,-.23),cyl(.034,.01,0x66ccff,0,.105,.12),box(.07,.14,.36,Wd,0,-.03,.4),box(.04,.12,.08,M,0,-.1,-.02),box(.015,.2,.015,D,-.05,-.12,-.62),box(.015,.2,.015,D,.05,-.12,-.62),box(.03,.03,.1,D,.06,.03,.05));
+  if(pn){const st=new THREE.Mesh(new THREE.BoxGeometry(.025,.025,.7),new THREE.MeshBasicMaterial({color:0x6fe3ff}));st.position.set(0,.085,-.25);g.add(st)}
   return g;
 }
 function lootMesh(w,r){
@@ -1044,6 +1056,23 @@ function mk(nick,skin,noAdd){
   const leg=x=>limb(.14,.1,.8,pants,x,.8,h=>{const b=new THREE.Group();b.add(box(.22,.2,.36,0x222222,0,-h+.1,-.05),box(.2,.12,.06,dark,0,-h*.5,-.12));return b});
   const arm=x=>limb(.1,.08,.7,shirt,x,1.48,h=>{const b=new THREE.Group();b.add(sph(.095,GL,0,-h,0),sph(.13,dark,0,.02,0));return b});
   const lx=.16+(F-1)*.15,ax=.42+(F-1)*.45,legL=leg(-lx),legR=leg(lx),armL=arm(-ax),armR=arm(ax);
+  if(hat==='icecrown'){
+    g.add(box(.46,.1,.46,0x0b0b12,0,1.97,0));
+    for(let a=0;a<5;a++){const ag=a/5*6.283,sp=new THREE.Mesh(new THREE.ConeGeometry(.06,.3+(a%2)*.12,4),BL(0x4fd8ff));sp.position.set(Math.cos(ag)*.17,2.16,Math.sin(ag)*.17);g.add(sp)}
+  }
+  if(ex==='aura'){
+    const gl=(w,h,d,x,y,z)=>{const m=box(w,h,d,0x35c8ff,x,y,z);m.material=BL(0x35c8ff);return m};
+    g.add(gl(.04,.62,.02,-.1,1.16,-.245),gl(.04,.62,.02,.1,1.16,-.245),gl(.5,.04,.02,0,1.48,-.245),gl(.66,.04,.31,0,.93,0),gl(.22,.04,.02,0,.76,-.2));
+    for(const s of[-1,1])g.add(gl(.16,.04,.2,s*.4,1.52,0));
+    for(const l of[armL,armR,legL,legR]){for(const yy of[-.5,-.12]){const c=new THREE.Mesh(new THREE.CylinderGeometry(.115,.105,.05,8),BL(0x35c8ff));c.position.y=yy;l.add(c)}}
+    const AB=(c,o)=>new THREE.MeshBasicMaterial({color:c,transparent:true,opacity:o,depthWrite:false,blending:THREE.AdditiveBlending,side:THREE.DoubleSide});
+    const sh=new THREE.Mesh(new THREE.SphereGeometry(1,16,12),AB(0x2fb8ff,.15));sh.scale.set(.85,1.35,.85);sh.position.y=1.1;
+    const ring=new THREE.Mesh(new THREE.RingGeometry(.5,.95,32),AB(0x6fe3ff,.5));ring.rotation.x=-Math.PI/2;ring.position.y=.05;
+    const orb=new THREE.Group();orb.position.y=1.1;
+    for(let i=0;i<7;i++){const a=i/7*6.283,o=new THREE.Mesh(new THREE.OctahedronGeometry(.07),AB(0xbff3ff,.9));o.position.set(Math.cos(a)*.65,Math.sin(i*2.1)*.6,Math.sin(a)*.65);orb.add(o)}
+    sh.onBeforeRender=()=>{const t=performance.now()/1000;orb.rotation.y=t*1.8;orb.position.y=1.1+Math.sin(t*2)*.06;sh.material.opacity=.14+Math.sin(t*3)*.04;ring.scale.setScalar(1+Math.sin(t*2.5)*.08)};
+    g.add(sh,ring,orb);
+  }
   if(ex==='glow')for(const l of[legL,legR]){const m=new THREE.Mesh(new THREE.BoxGeometry(.03,.6,.03),BL(hc));m.position.set(0,-.4,-.13);l.add(m)}
   const hand=new THREE.Group();hand.position.set(.28,1.38,-.4);
   const chute=mkChute(new THREE.Color().setHSL(((hue+180)%360)/360,.7,.55),2.4,4.2,[[-.28,1.55,0],[.28,1.55,0]],8);
