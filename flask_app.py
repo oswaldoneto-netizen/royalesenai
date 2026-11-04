@@ -27,7 +27,16 @@ MAX_LEVEL = 150
 MAX_XP = 100 * (MAX_LEVEL - 1) * MAX_LEVEL // 2   # xp acumulado para chegar no nivel 150
 CREATOR_IDX = 7            # skin exclusiva do criador (personagem e arma)
 N_CH = game.N_SKINS        # personagens: indices 0..N_CH-1 (7 = so do criador)
-N_WP = 12                  # skins de arma
+N_WP = 13                  # skins de arma
+PANDA_CH = 13              # personagem Panda (so quem comprou o Pacote Panda via Pix)
+PANDA_WP = 12              # skin de arma Panda (idem)
+
+# ---------- Pix (Mercado Pago) ----------
+# Defina no Render (Environment): MP_ACCESS_TOKEN = token de PRODUCAO da sua conta Mercado Pago.
+# PUBLIC_URL (opcional) = endereco do jogo, ex.: https://royalesenai.onrender.com  (habilita o aviso automatico do pagamento)
+MP_TOKEN = os.environ.get("MP_ACCESS_TOKEN", "").strip()
+PUBLIC_URL = os.environ.get("PUBLIC_URL", "").strip().rstrip("/")
+PANDA_PRICE = 5.00
 N_EM = game.N_EMOTES       # emotes de danca (0 = gratis, todo mundo tem)
 ONLINE_WINDOW = 45         # segundos sem ping = offline
 RESERVED = {"oswaldo", "criador", "criadoroswaldo", "admin", "adm", "moderador", "oswaldindev"}
@@ -106,11 +115,11 @@ def clamp_int(v, lo, hi, d=0):
     return max(lo, min(hi, v))
 
 
-def own_list(v, n):
+def own_list(v, n, banned=()):
     out = {0}
     if isinstance(v, list):
         for i in v:
-            if isinstance(i, int) and not isinstance(i, bool) and 0 <= i < n and i != CREATOR_IDX:
+            if isinstance(i, int) and not isinstance(i, bool) and 0 <= i < n and i != CREATOR_IDX and i not in banned:
                 out.add(i)
     return sorted(out)
 
@@ -159,13 +168,19 @@ def creator_save(s):
     }
 
 
-def clean_save(s, is_creator):
+def clean_save(s, is_creator, panda=False):
     if not isinstance(s, dict):
         s = {}
     if is_creator:
         return creator_save(s)
-    cown = own_list(s.get("cown"), N_CH)   # o indice 7 (criador) nunca entra
-    wown = own_list(s.get("wown"), N_WP)
+    # o indice 7 (criador) nunca entra; o Panda so entra se o servidor registrou o pagamento
+    cown = own_list(s.get("cown"), N_CH, () if panda else (PANDA_CH,))
+    wown = own_list(s.get("wown"), N_WP, () if panda else (PANDA_WP,))
+    if panda:
+        if PANDA_CH not in cown:
+            cown = sorted(cown + [PANDA_CH])
+        if PANDA_WP not in wown:
+            wown = sorted(wown + [PANDA_WP])
     eown = own_emotes(s.get("eown"))
     ee = clamp_int(s.get("ee"), 0, N_EM - 1)
     ec = clamp_int(s.get("ec"), 0, N_CH - 1)
@@ -196,7 +211,11 @@ def row_save(row):
         raw = json.loads(row["save"])
     except ValueError:
         raw = {}
-    return clean_save(raw, is_creator_row(row))
+    try:
+        panda = bool(row["panda"])
+    except (KeyError, IndexError):
+        panda = False
+    return clean_save(raw, is_creator_row(row), panda)
 
 
 def payload(row, token):
@@ -231,6 +250,12 @@ CREATE TABLE IF NOT EXISTS records(
   kills INTEGER NOT NULL,
   ts INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS pix(
+  id TEXT PRIMARY KEY,
+  uid INTEGER NOT NULL,
+  status TEXT NOT NULL,
+  created INTEGER NOT NULL
+);
 """
 SCHEMA_PG = """
 CREATE TABLE IF NOT EXISTS users(
@@ -254,6 +279,12 @@ CREATE TABLE IF NOT EXISTS records(
   ts BIGINT NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS ux_records_nick ON records(LOWER(nick));
+CREATE TABLE IF NOT EXISTS pix(
+  id TEXT PRIMARY KEY,
+  uid INTEGER NOT NULL,
+  status TEXT NOT NULL,
+  created BIGINT NOT NULL
+);
 """
 
 
@@ -272,6 +303,14 @@ def init_db():
             con.execute(SCHEMA_PG)
         else:
             con.raw.executescript(SCHEMA_SQLITE)
+        # coluna "panda" (1 = comprou o Pacote Panda). Bancos antigos recebem a coluna aqui.
+        con.commit()
+        try:
+            con.execute("ALTER TABLE users ADD COLUMN " + ("IF NOT EXISTS " if USE_PG else "")
+                        + "panda INTEGER NOT NULL DEFAULT 0")
+            con.commit()
+        except Exception:      # SQLite: a coluna ja existe
+            pass
         if CREATOR_PASS:
             row = con.execute("SELECT id, pw FROM users WHERE LOWER(nick)=LOWER(?)", (CREATOR_NICK,)).fetchone()
             h = lambda: generate_password_hash(CREATOR_PASS, method="pbkdf2:sha256")
@@ -457,7 +496,7 @@ def save():
         row = user_from_token(con)
         if row is None:
             return err("Sessão expirada.", 401)
-        s = clean_save(d.get("save"), is_creator_row(row))
+        s = clean_save(d.get("save"), is_creator_row(row), bool(row["panda"]))
         con.execute("UPDATE users SET save=? WHERE id=?", (json.dumps(s), row["id"]))
         con.commit()
         return jsonify({"ok": True})
@@ -509,6 +548,119 @@ def logout():
         return jsonify({"ok": True})
     finally:
         con.close()
+
+
+# ---------- Pix: Pacote Panda (Mercado Pago) ----------
+def mp_call(method, path, body=None, idem=None):
+    import urllib.request
+    import urllib.error
+    req = urllib.request.Request("https://api.mercadopago.com" + path, method=method,
+                                 data=json.dumps(body).encode() if body is not None else None)
+    req.add_header("Authorization", "Bearer " + MP_TOKEN)
+    req.add_header("Content-Type", "application/json")
+    if idem:
+        req.add_header("X-Idempotency-Key", idem)
+    try:
+        with urllib.request.urlopen(req, timeout=15) as r:
+            return json.loads(r.read().decode())
+    except urllib.error.HTTPError as e:
+        print("mercadopago erro", e.code, e.read().decode()[:300], flush=True)
+        return None
+    except Exception as e:
+        print("mercadopago falhou:", repr(e), flush=True)
+        return None
+
+
+def pix_settle(con, pay_id):
+    """Confere o pagamento DIRETO no Mercado Pago. So libera o Panda se estiver aprovado, com o valor certo."""
+    pr = con.execute("SELECT uid, status FROM pix WHERE id=?", (str(pay_id),)).fetchone()
+    if pr is None:
+        return None
+    if pr["status"] == "approved":
+        return "approved"
+    p = mp_call("GET", "/v1/payments/" + str(pay_id))
+    if not p:
+        return pr["status"]
+    st = p.get("status") or "pending"
+    ok = (st == "approved" and p.get("external_reference") == "panda-%d" % pr["uid"]
+          and float(p.get("transaction_amount") or 0) >= PANDA_PRICE)
+    if ok:
+        con.execute("UPDATE users SET panda=1 WHERE id=?", (pr["uid"],))
+        con.execute("UPDATE pix SET status='approved' WHERE id=?", (str(pay_id),))
+        con.commit()
+        return "approved"
+    if st != pr["status"]:
+        con.execute("UPDATE pix SET status=? WHERE id=?", (st, str(pay_id)))
+        con.commit()
+    return st
+
+
+@app.route("/api/pix/create", methods=["POST"])
+def pix_create():
+    if not MP_TOKEN:
+        return err("O pagamento por Pix ainda não está configurado.", 503)
+    con = db()
+    try:
+        row = user_from_token(con)
+        if row is None:
+            return err("Sessão expirada.", 401)
+        if row["panda"]:
+            return err("Você já tem o Pacote Panda!", 409)
+        n = con.execute("SELECT COUNT(*) AS c FROM pix WHERE uid=? AND created>?",
+                        (row["id"], int(time.time()) - 600)).fetchone()["c"]
+        if n >= 5:
+            return err("Muitas tentativas. Espere alguns minutos.", 429)
+        body = {
+            "transaction_amount": PANDA_PRICE,
+            "description": "Pacote Panda - Royale Senai",
+            "payment_method_id": "pix",
+            "payer": {"email": "jogador%d@email.com" % row["id"]},
+            "external_reference": "panda-%d" % row["id"],
+        }
+        if PUBLIC_URL:
+            body["notification_url"] = PUBLIC_URL + "/api/pix/webhook"
+        p = mp_call("POST", "/v1/payments", body, idem=secrets.token_hex(16))
+        td = ((p or {}).get("point_of_interaction") or {}).get("transaction_data") or {}
+        if not p or not p.get("id") or not td.get("qr_code"):
+            return err("Não consegui gerar o Pix agora. Tente de novo.", 502)
+        con.execute("INSERT INTO pix(id, uid, status, created) VALUES(?,?,?,?)",
+                    (str(p["id"]), row["id"], "pending", int(time.time())))
+        con.commit()
+        return jsonify({"id": str(p["id"]), "code": td["qr_code"], "qr": td.get("qr_code_base64", "")})
+    finally:
+        con.close()
+
+
+@app.route("/api/pix/status")
+def pix_status():
+    pid = request.args.get("id", "")
+    con = db()
+    try:
+        row = user_from_token(con)
+        if row is None:
+            return err("Sessão expirada.", 401)
+        pr = con.execute("SELECT uid FROM pix WHERE id=?", (pid,)).fetchone()
+        if pr is None or pr["uid"] != row["id"]:
+            return err("Pagamento não encontrado.", 404)
+        st = pix_settle(con, pid)
+        return jsonify({"status": st})
+    finally:
+        con.close()
+
+
+@app.route("/api/pix/webhook", methods=["POST"])
+def pix_webhook():
+    d = request.get_json(silent=True) or {}
+    pid = str((d.get("data") or {}).get("id") or request.args.get("data.id") or request.args.get("id") or "")
+    if pid.isdigit():
+        con = db()
+        try:
+            pix_settle(con, pid)
+        except Exception as e:
+            print("erro no webhook:", repr(e), flush=True)
+        finally:
+            con.close()
+    return "ok"
 
 
 # ---------- multiplayer (WebSocket) ----------
