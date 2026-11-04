@@ -19,7 +19,7 @@ from collections import deque
 BASE = os.path.dirname(os.path.abspath(__file__))
 
 # ---------------- configuracao ----------------
-N_SKINS = 14                                       # personagens (0..13; 7 = criador; 13 = panda, so por Pix)
+N_SKINS = 14                                       # personagens (0..13; 7 = criador; 13 = Rei do Gelo, so por Pix)
 MAX_PLAYERS = 22                                   # (legado) solo
 MODE_MAX = {"solo": 22, "duo": 28, "svd": 28, "squad": 35, "svq": 35}   # humanos + bots por sala
 RECORD_HOOK = None                                 # funcao(nick, kills) definida pelo flask_app
