@@ -28,8 +28,13 @@ TICK = 0.05                                        # 20 atualizacoes por segundo
 PLANE_MS = 20000
 GRACE = 40000
 LAKE_R, ISL_R = 50, 25
-POIS = [(250, 250, 90, 30, 5), (-250, -250, 55, 22, 4), (150, 24, 12, 8, 1), (24, -170, 12, 8, 1)]  # x,z,s,loot,chests
+POIS = [(170, 170, 90, 30, 5), (-250, -250, 55, 22, 4), (150, 24, 12, 8, 1), (24, -170, 12, 8, 1)]  # x,z,s,loot,chests
 ISLC = [(8, 8), (-8, 8), (8, -8), (-8, -8)]
+N_EMOTES = 8                  # emotes de danca (0..7)
+EMO_MS = 6000                 # duracao maxima de uma danca
+VEST = 7                      # item "colete": +50 de escudo (maximo 100)
+VEST_ADD, SHIELD_MAX = 50, 100
+DROP_FIRST, DROP_EVERY, DROP_MAX, DROP_FALL = 75000, 50000, 3, 12000   # suprimentos (ms)
 WS = [
     dict(d=18, cd=350, sp=.01, pe=1, r=120),
     dict(d=12, cd=110, sp=.03, pe=1, r=140),
@@ -110,8 +115,9 @@ class Client:
     """Um navegador conectado. Envia por uma fila + thread propria para
     um cliente lento nunca travar o loop do jogo."""
 
-    def __init__(self, ws, nick, creator, cown):
+    def __init__(self, ws, nick, creator, cown, eown=None):
         self.ws = ws
+        self.eown = list(eown) if eown else [0]
         self.nick = nick
         self.creator = creator
         self.cown = cown
@@ -183,6 +189,9 @@ class Player:
         self.pg = None          # codigo da party (pra manter o grupo junto)
         self.fill = False       # grupo aceita completar o time com aleatorios
         self.spec = False       # morto, assistindo o parceiro
+        self.sh = 0.0           # escudo (colete)
+        self.emo = 0            # emote tocando agora (0 = nenhum, 1..N_EMOTES)
+        self.emo_t = 0.0
 
 
 def now_ms():
@@ -210,6 +219,9 @@ class Room:
         self.wait_until = time.time() + WAIT_SECS
         self.last_lobby = 0
         self.last_tick = time.time()
+        self.drops = []
+        self.drop_n = 0
+        self.next_drop = DROP_FIRST
 
     # ---- util ----
     def humans(self):
@@ -284,6 +296,7 @@ class Room:
             b.tg = [rn(-380, 380), rn(-380, 380)]
             self.players[pid] = b
         self.make_teams()
+        self.drops, self.drop_n, self.next_drop = [], 0, DROP_FIRST
         self.plane = dict(ax=-320, az=rn(-150, 150), bx=320, bz=rn(-150, 150))
         self.t0 = now_ms()
         self.last_tick = time.time()
@@ -293,7 +306,7 @@ class Room:
 
     def add_loot(self, li, x, z):
         k = random.random()
-        w = roll_w() if k < .6 else 5 if k < .86 else 6
+        w = roll_w() if k < .55 else 5 if k < .76 else 6 if k < .88 else VEST
         self.loot[li] = {"id": li, "x": x, "z": z, "w": w, "r": roll_r(0) if w < 5 else 0}
 
     def gen_loot(self):
@@ -428,7 +441,9 @@ class Room:
             self.emit({"t": "pick", "id": lid})
             p.client.send({"t": "got", "w": l["w"], "r": l["r"] or 0})
             return
-        if l["w"] >= 5:
+        if l["w"] == VEST:
+            p.sh = min(SHIELD_MAX, p.sh + VEST_ADD)
+        elif l["w"] >= 5:
             p.hp = min(100, p.hp + (15 if l["w"] == 5 else 50))
         else:
             p.w, p.r = l["w"], l["r"] or 0
@@ -440,7 +455,14 @@ class Room:
             return
         c["open"] = 1
         self.emit({"t": "chest", "id": cid})
-        heal = lambda: 5 if random.random() < .5 else 6
+        heal = lambda: random.choice([5, 6, VEST, VEST])
+        if c.get("sup"):                       # caixa de suprimentos: armas epicas/lendarias + colete + kit
+            sw = lambda: random.choice([0, 1, 1, 2, 2, 3, 3, 4])
+            self.drop_loot(sw(), random.choice([2, 3]), c["x"] - 1.6, c["z"] + 1.1)
+            self.drop_loot(sw(), random.choice([2, 3]), c["x"] + 1.6, c["z"] + 1.1)
+            self.drop_loot(VEST, 0, c["x"] - .8, c["z"] + 2.3)
+            self.drop_loot(6, 0, c["x"] + .8, c["z"] + 2.3)
+            return
         if c.get("leg"):
             lw = lambda: random.choice([0, 1, 1, 2, 2, 3, 3, 4])
             self.drop_loot(lw(), 3, c["x"] - 1.3, c["z"] + .9)
@@ -504,6 +526,7 @@ class Room:
 
     def knock(self, q, killer):
         q.down, q.dhp, q.hp, q.revp, q.dby = True, 100.0, 0.0, 0.0, killer
+        q.sh, q.emo = 0.0, 0
         if killer and killer is not q:
             self.emit({"t": "feed", "x": killer.nick + " deixou " + q.nick + " atordoado", "dn": 1})
         else:
@@ -578,13 +601,21 @@ class Room:
     def md(self):
         return self.mode if self.mode in ("duo", "squad") else "solo"
 
+    def absorb(self, q, dmg):
+        """O escudo (colete) toma o dano antes da vida. Devolve o que sobra."""
+        if q.sh > 0 and not q.down:
+            a = min(q.sh, dmg)
+            q.sh -= a
+            dmg -= a
+        return dmg
+
     def deal(self, q, dmg, killer):
         if q.down:
             q.dhp -= dmg
             if q.dhp <= 0 and q.alive:
                 self.die(q, killer)
         else:
-            q.hp -= dmg
+            q.hp -= self.absorb(q, dmg)
             if q.hp <= 0 and q.alive:
                 if self.can_down(q):
                     self.knock(q, killer)
@@ -667,6 +698,7 @@ class Room:
         if n - p.last < w["cd"] * .9:
             return
         p.last = n
+        p.emo = 0
         dm = jround(w["d"] * DM[ri or 0])
         self.emit({"t": "sh", "id": p.id, "w": wi, "x": p.x, "y": p.y, "z": p.z, "d": d})
         if wi == 4:
@@ -690,7 +722,7 @@ class Room:
                     if q.dhp <= 0 and q.alive:
                         self.die(q, p)
                 else:
-                    q.hp -= dm
+                    q.hp -= self.absorb(q, dm)
                     if q.hp <= 0 and q.alive:
                         if self.can_down(q):
                             self.knock(q, p)
@@ -705,7 +737,7 @@ class Room:
         if self.state != "playing" or not p.alive or p.bot:
             return
         t = m.get("t")
-        if p.down and t in ("heal", "pick", "open", "drop", "eq"):
+        if p.down and t in ("heal", "vest", "pick", "open", "drop", "eq", "emote"):
             return
         if t == "rv":
             self.revive_msg(p, m)
@@ -759,6 +791,20 @@ class Room:
             p.inv.remove([kit, 0])
             p.last_heal = n
             p.hp = max(p.hp, min(c, p.hp + a))
+        elif t == "vest":
+            n = now_ms()
+            if [VEST, 0] not in p.inv or p.sh >= SHIELD_MAX or n - p.last_heal < 800:
+                return
+            p.inv.remove([VEST, 0])
+            p.last_heal = n
+            p.sh = min(SHIELD_MAX, p.sh + VEST_ADD)
+        elif t == "emote":
+            e = m.get("e")
+            if e == 0:
+                p.emo = 0
+            elif (isinstance(e, int) and not isinstance(e, bool) and 1 <= e <= N_EMOTES and p.ph == "ground"
+                  and p.client is not None and (p.client.creator or (e - 1) in p.client.eown)):
+                p.emo, p.emo_t = e, now_ms()
         elif t == "drop":
             w, r, x, z = m.get("w"), m.get("r", 0), num(m.get("x")), num(m.get("z"))
             if not (isinstance(w, int) and isinstance(r, int)) or x is None or z is None:
@@ -864,6 +910,36 @@ class Room:
                 p.ry = math.atan2(-dx, -dz)
             p.x, p.z = self.resolve(nx, nz, .5, p.y)
 
+    # ---- suprimentos ----
+    def tick_drops(self, el, r):
+        if self.drop_n < DROP_MAX and el >= self.next_drop:
+            self.spawn_drop(el, r)
+        for d in self.drops:
+            if not d["landed"] and el >= d["land"]:
+                d["landed"] = True
+                c = {"id": d["id"], "x": d["x"], "z": d["z"], "open": 0, "sup": 1}
+                self.chests[c["id"]] = c
+                self.emit({"t": "dland", "c": c})
+
+    def spawn_drop(self, el, r):
+        x, z = 90.0, 90.0
+        for _ in range(20):                                # sorteia ate achar um lugar bom (fora do lago e de paredes)
+            ang = random.random() * math.tau
+            dist = rn(.1, .75) * max(20.0, r - 40)
+            x, z = math.cos(ang) * dist, math.sin(ang) * dist
+            if math.hypot(x, z) < LAKE_R + 14:
+                continue
+            x, z = self.resolve(x, z, 3.0, 0)
+            x, z = self.resolve(x, z, 3.0, 0)
+            if math.hypot(x, z) > LAKE_R + 8:
+                break
+        x, z = max(-430.0, min(430.0, x)), max(-430.0, min(430.0, z))
+        d = {"id": "s%d" % self.drop_n, "x": round(x, 1), "z": round(z, 1), "land": el + DROP_FALL, "landed": False}
+        self.drops.append(d)
+        self.drop_n += 1
+        self.next_drop = el + DROP_EVERY
+        self.emit({"t": "drop", "id": d["id"], "x": d["x"], "z": d["z"], "fall": DROP_FALL})
+
     # ---- loop da sala ----
     def update(self):
         n = time.time()
@@ -883,6 +959,7 @@ class Room:
         f = min(1, el / PLANE_MS)
         pl = self.plane
         px, pz = pl["ax"] + (pl["bx"] - pl["ax"]) * f, pl["az"] + (pl["bz"] - pl["az"]) * f
+        self.tick_drops(el, r)
         for p in list(self.players.values()):
             if not p.alive:
                 continue
@@ -901,6 +978,8 @@ class Room:
                 elif p.dhp <= 0 or not any(t.alive and not t.down and t.team == p.team and t is not p
                                            for t in self.players.values()):
                     self.die(p, p.dby)
+            if p.emo and now_ms() - p.emo_t > EMO_MS:
+                p.emo = 0
             if p.alive and p.ph != "plane" and math.hypot(p.x, p.z) > r:
                 dmg = (2 + max(0, zt) / 30000) * dt
                 if p.down:
@@ -918,7 +997,7 @@ class Room:
                                                           for j in self.proj], "p": [
             [p.id, p.nick, round(p.x, 2), round(p.y, 2), round(p.z, 2), round(p.ry, 3),
              max(0, jround(p.dhp if p.down else p.hp)), 1 if p.alive else 0, p.skin, 0 if p.down else p.w,
-             1 if p.ph == "plane" else 0, p.team, 1 if p.down else 0, round(p.revp, 1)] for p in self.players.values()]})
+             1 if p.ph == "plane" else 0, p.team, 1 if p.down else 0, round(p.revp, 1), jround(p.sh), p.emo if p.alive else 0] for p in self.players.values()]})
         humans_alive = [p for p in a if not p.bot]
         if len({p.team for p in a}) <= 1:
             for p in a:

@@ -28,6 +28,7 @@ MAX_XP = 100 * (MAX_LEVEL - 1) * MAX_LEVEL // 2   # xp acumulado para chegar no 
 CREATOR_IDX = 7            # skin exclusiva do criador (personagem e arma)
 N_CH = game.N_SKINS        # personagens: indices 0..N_CH-1 (7 = so do criador)
 N_WP = 12                  # skins de arma
+N_EM = game.N_EMOTES       # emotes de danca (0 = gratis, todo mundo tem)
 ONLINE_WINDOW = 45         # segundos sem ping = offline
 RESERVED = {"oswaldo", "criador", "criadoroswaldo", "admin", "adm", "moderador", "oswaldindev"}
 NICK_RE = re.compile(r"^[A-Za-z0-9_.-]{3,14}$")
@@ -114,6 +115,15 @@ def own_list(v, n):
     return sorted(out)
 
 
+def own_emotes(v):
+    out = {0}
+    if isinstance(v, list):
+        for i in v:
+            if isinstance(i, int) and not isinstance(i, bool) and 0 <= i < N_EM:
+                out.add(i)
+    return sorted(out)
+
+
 def clean_cl(v):
     if not isinstance(v, dict):
         return {}
@@ -138,6 +148,8 @@ def creator_save(s):
         "coins": 999999999,
         "cown": list(range(N_CH)),
         "wown": list(range(N_WP)),
+        "eown": list(range(N_EM)),
+        "ee": clamp_int(s.get("ee"), 0, N_EM - 1),
         "ec": ec,
         "ew": ew,
         "pass": 1,
@@ -154,6 +166,8 @@ def clean_save(s, is_creator):
         return creator_save(s)
     cown = own_list(s.get("cown"), N_CH)   # o indice 7 (criador) nunca entra
     wown = own_list(s.get("wown"), N_WP)
+    eown = own_emotes(s.get("eown"))
+    ee = clamp_int(s.get("ee"), 0, N_EM - 1)
     ec = clamp_int(s.get("ec"), 0, N_CH - 1)
     ew = clamp_int(s.get("ew"), 0, N_WP - 1)
     return {
@@ -162,6 +176,8 @@ def clean_save(s, is_creator):
         "coins": clamp_int(s.get("coins"), 0, 10 ** 9),
         "cown": cown,
         "wown": wown,
+        "eown": eown,
+        "ee": ee if ee in eown else 0,
         "ec": ec if ec in cown else 0,
         "ew": ew if ew in wown else 0,
         "pass": 1 if s.get("pass") else 0,
@@ -510,7 +526,7 @@ def ws_route(ws):
     if row is None:
         ws.send(json.dumps({"t": "error", "e": "Sessão expirada. Entre de novo."}))
         return
-    client = game.Client(ws, nick, creator, sv["cown"])
+    client = game.Client(ws, nick, creator, sv["cown"], sv.get("eown"))
     try:
         while not client.closed:
             data = ws.receive(timeout=30)
