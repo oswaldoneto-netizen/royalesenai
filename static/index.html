@@ -261,7 +261,7 @@ const CH=[
 ['Leo Atiçado',0xf0c8a0,0x3b4a6b,'none',0xf0c8a0,2500,'shop','none',2,{hair:0xf2d15c,bare:1}],
 ['Jadrian',0xe08a1e,0x2f3b52,'none',0xe08a1e,2500,'shop','none',2,{hair:0x1a120b,short:1,fat:1.32}],
 ['Cavaleiro Dourado',0xffc93c,0xc9961a,'knight',0xffd84a,5000,'shop','knight',3,{}],
-['Rei do Gelo',0x14141c,0x0b0b12,'icecrown',0x35c8ff,0,'pix','aura',3,{hair:0xbfe9ff}]];
+['Rei do Gelo',0x14141c,0x0b0b12,'icecrown',0x35c8ff,0,'pix','wings',3,{hair:0x2fc4ff,glow:1}]];
 const WSK=[['Padrão',0x9aa4b2,0,'free',0],['Ouro',0xffc93c,1000,'shop',1],['Neon',0x00ffd5,1700,'shop',2],['Fogo',0xff4a1c,1900,'shop',2],['Camuflado',0x5b7a3a,0,'pass',1],['Galáxia',0x7a4bff,0,'pass',2],['Diamante',0x7ee8ff,0,'pass',3],['Criador',0xff2d95,0,'creator',3],
 ['Tangerina',0xff9f43,600,'shop',0],['Gelo',0x9fe4ff,1100,'shop',1],['Veneno',0x7dff2a,2000,'shop',2],['Obsidiana',0x4b3a7a,3500,'shop',3],['Rei do Gelo',0x2fb8ff,0,'pix',3]];
 const PASS=[[50,['$',100]],[60,['w',4]],[70,['c',4]],[80,['$',200]],[90,['w',5]],[100,['c',5]],[110,['$',300]],[120,['w',6]],[130,['$',400]],[150,['c',6]],
@@ -412,7 +412,7 @@ function renderLobby(){
 }
 // ----- Pix: Pacote Rei do Gelo + moedas -----
 const COINP=[['c5k',5000,'R$ 1,00','🪙'],['c40k',40000,'R$ 3,00','💰'],['c70k',70000,'R$ 5,00','💎']];
-var pdInfo=null,pdPoll=null,pdMsg='',pdBusy=false;
+var pdInfo=null,pdPoll=null,pdMsg='',pdBusy=false,pdAsk=null;
 function pdStop(){clearInterval(pdPoll);pdPoll=null;pdInfo=null}
 function pdStatus(id,cb){fetch('/api/pix/status?id='+encodeURIComponent(id),{headers:{'X-Token':tok}}).then(r=>r.ok?r.json():null).then(d=>{if(d)cb(d)}).catch(()=>{}).finally(()=>{pdBusy=false})}
 function pdCheck(){if(!pdInfo||pdBusy)return;pdBusy=true;const prod=pdInfo.prod;pdStatus(pdInfo.id,d=>{
@@ -426,7 +426,7 @@ function pdRecover(){fetch('/api/pix/recover',{method:'POST',headers:{'X-Token':
   if(d.coins>0){save.coins+=d.coins;ch=true;uiSnd('claim')}
   if(ch){persistOwn();renderLobby()}}).catch(()=>{})}
 function pdBuy(prod,label){
-  pdMsg='Gerando o Pix...';renderLobby();
+  pdAsk=null;pdMsg='Gerando o Pix...';renderLobby();
   fetch('/api/pix/create',{method:'POST',headers:{'Content-Type':'application/json','X-Token':tok},body:JSON.stringify({prod:prod})}).then(r=>r.json().then(d=>({ok:r.ok,d}))).then(x=>{
     if(!x.ok){pdMsg=x.d.error||'Erro ao gerar o Pix.';renderLobby();return}
     pdInfo=x.d;pdInfo.prod=prod;pdInfo.label=label;pdMsg='';
@@ -445,16 +445,27 @@ function pixBox(B){
   const cn=document.createElement('button');cn.className='pbuy';cn.style.background='#2a3a44';cn.textContent='VOLTAR';cn.onclick=()=>{pdStop();pdMsg='';renderLobby()};
   bx.append(cp,st,cn);w.appendChild(bx);
 }
+function askBox(B){
+  const w=document.createElement('div');w.className='pdw';B.appendChild(w);
+  const bx=document.createElement('div');bx.className='pdbox';
+  bx.innerHTML='<div style="font:24px Impact,sans-serif;color:#ffd34d;text-align:center"></div><div class="pcap"></div>';
+  bx.firstChild.textContent='Comprar '+pdAsk.title+' por '+pdAsk.price+'?';
+  bx.lastChild.textContent='Vamos gerar um Pix de '+pdAsk.price+'. Só gere se você realmente quer comprar.';
+  const ok=document.createElement('button');ok.className='pbuy';ok.textContent='SIM, GERAR PIX';ok.onclick=()=>{audioInit();pdBuy(pdAsk.prod,pdAsk.price+' ('+pdAsk.title+')')};
+  const no=document.createElement('button');no.className='pbuy';no.style.background='#2a3a44';no.textContent='CANCELAR';no.onclick=()=>{pdAsk=null;renderLobby()};
+  bx.append(ok,no);w.appendChild(bx);
+}
 function renderBuy(B){
   const h=document.createElement('h3');h.textContent='💰 LOJA • COMPRAR MOEDAS';h.style.cssText='margin-top:20px;text-align:center;color:#ffd34d;font-family:Impact,sans-serif;letter-spacing:1px;font-size:20px';B.appendChild(h);
   if(pdInfo){pixBox(B);return}
+  if(pdAsk){askBox(B);return}
   if(pdMsg){const m=document.createElement('div');m.className='pcap';m.style.margin='6px 0';m.textContent=pdMsg;B.appendChild(m)}
   const g=document.createElement('div');g.className='grid';B.appendChild(g);
   const card=(html,name,sub,col,fn)=>{const b=document.createElement('button');b.className='sk';b.style.boxShadow='inset 0 -4px 0 '+col;b.innerHTML=html+'<span></span><small></small>';b.querySelector('span').textContent=name;b.querySelector('small').textContent=sub;b.onclick=fn;g.appendChild(b)};
-  COINP.forEach(p=>card('<div style="font-size:54px;height:84px;line-height:84px">'+p[3]+'</div>',p[1].toLocaleString('pt-BR')+' moedas','Pix • '+p[2],'#ffd34d',()=>{audioInit();pdBuy(p[0],p[2]+' ('+p[1].toLocaleString('pt-BR')+' moedas)')}));
+  COINP.forEach(p=>card('<div style="font-size:54px;height:84px;line-height:84px">'+p[3]+'</div>',p[1].toLocaleString('pt-BR')+' moedas','Pix • '+p[2],'#ffd34d',()=>{pdAsk={prod:p[0],title:p[1].toLocaleString('pt-BR')+' moedas',price:p[2]};renderLobby()}));
   const has=own('c',13);
   card(tagHtml('c',13)+'<img src="'+charThumb(13)+'">','Pacote Rei do Gelo',has?'✅ Você tem • Equipar':'Skin + arma • R$ 2,00','#ffa51f',()=>{
-    if(has){equip('c',13);equip('w',12);persist();renderLobby()}else{audioInit();pdBuy('panda','R$ 2,00 (Pacote Rei do Gelo)')}});
+    if(has){equip('c',13);equip('w',12);persist();renderLobby()}else{pdAsk={prod:'panda',title:'o Pacote Rei do Gelo',price:'R$ 2,00'};renderLobby()}});
   const n=document.createElement('div');n.className='pcap';n.style.marginTop='10px';n.textContent='Pagamento por Pix. As moedas caem na conta sozinhas assim que o pagamento é confirmado.';B.appendChild(n);
 }
 function renderProfile(B){
@@ -1034,7 +1045,7 @@ function mk(nick,skin,noAdd){
     box(.64*F,.1,.3,0x2a2d33,0,.84,0),box(.12,.09,.02,0xd9b84a,0,.84,-.2),box(.4,.5,.2,0x3a3f33,0,1.2,.27+(F-1)*.4),box(.34,.1,.22,0x2b2f28,0,1.48,.27+(F-1)*.4));
   if(!OP.bare&&F===1)g.add(box(.46,.34,.06,dark,0,1.24,-.2),box(.05,.5,.07,dark,-.17,1.18,-.21),box(.05,.5,.07,dark,.17,1.18,-.21));
   if(hat==='panda'){g.add(box(.46,.46,.46,0xf7f7f7,0,1.74,0),box(.15,.15,.12,0x15151a,-.18,2.02,0),box(.15,.15,.12,0x15151a,.18,2.02,0),box(.11,.14,.02,0x15151a,-.1,1.78,-.235),box(.11,.14,.02,0x15151a,.1,1.78,-.235),box(.04,.05,.02,0xffffff,-.1,1.79,-.248),box(.04,.05,.02,0xffffff,.1,1.79,-.248),box(.09,.06,.02,0x15151a,0,1.68,-.235),box(.12,.03,.02,0x15151a,0,1.6,-.235))}
-  if(hat!=='helm'&&hat!=='knight'&&hat!=='panda'){g.add(box(.44,.1,.44,hair,0,1.95,0));if(OP.short)g.add(box(.44,.12,.1,hair,0,1.91,.17));else g.add(box(.44,.32,.1,hair,0,1.8,.17));if(OP.bare)for(let a=-1;a<=1;a++)g.add(box(.1,.15,.1,hair,a*.15,2.06,0))}
+  const hb=(w,h,d,c,x,y,z)=>{const m=box(w,h,d,c,x,y,z);if(OP.glow)m.material=new THREE.MeshBasicMaterial({color:c});return m};if(hat!=='helm'&&hat!=='knight'&&hat!=='panda'){g.add(hb(.44,.1,.44,hair,0,1.95,0));if(OP.short)g.add(box(.44,.12,.1,hair,0,1.91,.17));else g.add(hb(.44,.32,.1,hair,0,1.8,.17));if(OP.bare)for(let a=-1;a<=1;a++)g.add(box(.1,.15,.1,hair,a*.15,2.06,0))}
   if(hat==='cap')g.add(box(.46,.14,.46,hc,0,1.99,0),box(.4,.04,.24,hc,0,1.94,-.33));
   else if(hat==='band')g.add(box(.45,.07,.45,hc,0,1.84,0),box(.1,.1,.3,hc,0,1.84,.35),box(.1,.1,.22,hc,.1,1.8,.45));
   else if(hat==='helm'){const hm=new THREE.Mesh(new THREE.SphereGeometry(.4,14,10),L(hc));hm.position.y=1.76;g.add(hm,box(.38,.24,.1,0x1f3550,0,1.74,-.32),cy(.04,.04,.18,0x999999,.3,1.76,0,6))}
@@ -1060,18 +1071,24 @@ function mk(nick,skin,noAdd){
     g.add(box(.46,.1,.46,0x0b0b12,0,1.97,0));
     for(let a=0;a<5;a++){const ag=a/5*6.283,sp=new THREE.Mesh(new THREE.ConeGeometry(.06,.3+(a%2)*.12,4),BL(0x4fd8ff));sp.position.set(Math.cos(ag)*.17,2.16,Math.sin(ag)*.17);g.add(sp)}
   }
-  if(ex==='aura'){
+  if(ex==='wings'){
     const gl=(w,h,d,x,y,z)=>{const m=box(w,h,d,0x35c8ff,x,y,z);m.material=BL(0x35c8ff);return m};
     g.add(gl(.04,.62,.02,-.1,1.16,-.245),gl(.04,.62,.02,.1,1.16,-.245),gl(.5,.04,.02,0,1.48,-.245),gl(.66,.04,.31,0,.93,0),gl(.22,.04,.02,0,.76,-.2));
     for(const s of[-1,1])g.add(gl(.16,.04,.2,s*.4,1.52,0));
     for(const l of[armL,armR,legL,legR]){for(const yy of[-.5,-.12]){const c=new THREE.Mesh(new THREE.CylinderGeometry(.115,.105,.05,8),BL(0x35c8ff));c.position.y=yy;l.add(c)}}
-    const AB=(c,o)=>new THREE.MeshBasicMaterial({color:c,transparent:true,opacity:o,depthWrite:false,blending:THREE.AdditiveBlending,side:THREE.DoubleSide});
-    const sh=new THREE.Mesh(new THREE.SphereGeometry(1,16,12),AB(0x2fb8ff,.15));sh.scale.set(.85,1.35,.85);sh.position.y=1.1;
-    const ring=new THREE.Mesh(new THREE.RingGeometry(.5,.95,32),AB(0x6fe3ff,.5));ring.rotation.x=-Math.PI/2;ring.position.y=.05;
-    const orb=new THREE.Group();orb.position.y=1.1;
-    for(let i=0;i<7;i++){const a=i/7*6.283,o=new THREE.Mesh(new THREE.OctahedronGeometry(.07),AB(0xbff3ff,.9));o.position.set(Math.cos(a)*.65,Math.sin(i*2.1)*.6,Math.sin(a)*.65);orb.add(o)}
-    sh.onBeforeRender=()=>{const t=performance.now()/1000;orb.rotation.y=t*1.8;orb.position.y=1.1+Math.sin(t*2)*.06;sh.material.opacity=.14+Math.sin(t*3)*.04;ring.scale.setScalar(1+Math.sin(t*2.5)*.08)};
-    g.add(sh,ring,orb);
+    for(const sd of[-1,1]){
+      const w=new THREE.Group();w.position.set(sd*.16,1.45,.4);w.rotation.y=-sd*.55;
+      const cols=[0x35c8ff,0x8fe8ff,0x35c8ff,0xc9f4ff,0x35c8ff];
+      for(let i=0;i<5;i++){
+        const len=1.25-i*.14,th=.3+i*.3,pv=new THREE.Group();pv.rotation.z=-sd*th;
+        const f=new THREE.Mesh(new THREE.BoxGeometry(.13,len,.025),BL(cols[i]));f.position.y=len/2;
+        const tip=new THREE.Mesh(new THREE.ConeGeometry(.065,.2,4),BL(0xe6fbff));tip.position.y=len+.08;
+        pv.add(f,tip);w.add(pv);
+      }
+      const bone=new THREE.Mesh(new THREE.BoxGeometry(.1,.1,.06),BL(0x0b0b12));w.add(bone);
+      bone.onBeforeRender=()=>{w.rotation.y=-sd*(.55+Math.sin(performance.now()/450)*.1)};
+      g.add(w);
+    }
   }
   if(ex==='glow')for(const l of[legL,legR]){const m=new THREE.Mesh(new THREE.BoxGeometry(.03,.6,.03),BL(hc));m.position.set(0,-.4,-.13);l.add(m)}
   const hand=new THREE.Group();hand.position.set(.28,1.38,-.4);
@@ -1172,7 +1189,7 @@ function snap(obj,cam,w,h){
 }
 const thc={},gic={},hic={};
 function charThumb(i){return thc[i]||(thc[i]=(()=>{
-  const g=mk('x',i,1),u=g.userData;u.sp.visible=false;g.rotation.y=.55;u.armR.rotation.x=1.35;u.armL.rotation.x=1.1;u.armL.rotation.z=-.25;u.hand.add(makeGun(1,0x9aa4b2));
+  const g=mk('x',i,1),u=g.userData;u.sp.visible=false;g.rotation.y=Math.PI-.5;u.armR.rotation.x=1.35;u.armL.rotation.x=1.1;u.armL.rotation.z=-.25;u.hand.add(makeGun(1,0x9aa4b2));
   const cam=new THREE.PerspectiveCamera(30,.8,.1,50);cam.position.set(0,1.2,6.4);cam.lookAt(0,1.1,0);return snap(g,cam,160,200);
 })())}
 function gunIcon(w,col){const k=w+'_'+col;return gic[k]||(gic[k]=(()=>{
@@ -1432,7 +1449,7 @@ var pvScene,pvCam,pvR,pvAv,pvAvs=[];
       const mine=m.n===save.nick,sk=mine?save.ec:m.s,g=mk(m.n,sk,1),u=g.userData;u.sp.visible=false;
       const a={g,skin:sk,wsk:mine?save.ew:0,wid:-1};setHand(a,1);
       u.armR.rotation.x=1.35;u.armL.rotation.x=1.1;u.armL.rotation.z=-.25;
-      g.position.x=(i-(ms.length-1)/2)*1.15;g.rotation.y=old[i]!==undefined?old[i]:.5;
+      g.position.x=(i-(ms.length-1)/2)*1.15;g.rotation.y=old[i]!==undefined?old[i]:Math.PI-.5;
       if(inP&&i===0)g.add(mkCrown());
       pvScene.add(g);pvAvs.push(a)});
     pvCam.position.z=ms.length>1?7.4+(ms.length-2)*1.4:5.4;
